@@ -197,6 +197,19 @@ create trigger trg_assign_bill_no
   execute function assign_bill_no();
 
 -- ============================================================
+-- RLS HELPER: returns the outlet_id for the currently authenticated staff user.
+-- SECURITY DEFINER lets the function read `staff` without re-triggering RLS,
+-- so the policies that depend on this don't recurse.
+-- ============================================================
+create or replace function public.auth_user_outlet_id()
+returns uuid language sql security definer stable
+set search_path = public, pg_temp as $$
+  select outlet_id from public.staff where auth_user_id = auth.uid() limit 1
+$$;
+revoke all on function public.auth_user_outlet_id() from public;
+grant execute on function public.auth_user_outlet_id() to authenticated, anon, service_role;
+
+-- ============================================================
 -- RLS: lock everything down. Customer reads/writes go through backend
 -- (service-role key bypasses RLS). Staff dashboards use anon key + auth.
 -- ============================================================
@@ -210,45 +223,41 @@ alter table order_items      enable row level security;
 alter table waiter_calls     enable row level security;
 alter table staff            enable row level security;
 
--- Staff can read/write rows belonging to their outlet
-create policy "staff read own outlet" on outlets for select
-  using (id in (select outlet_id from staff where auth_user_id = auth.uid()));
+-- Outlets: staff sees their own outlet
+create policy "outlets_select_own" on outlets for select to authenticated
+  using (id = public.auth_user_outlet_id());
 
--- Helper policies for staff-owned tables (those with an outlet_id column)
-do $$
-declare t text;
+-- Staff: see + modify staff in own outlet (helper makes this non-recursive)
+create policy "staff_all_own_outlet" on staff for all to authenticated
+  using (outlet_id = public.auth_user_outlet_id())
+  with check (outlet_id = public.auth_user_outlet_id());
+
+-- Generic per-outlet policies for tables with an outlet_id column
+do $$ declare t text;
 begin
-  foreach t in array array['tables','menu_categories','menu_items','customers','orders','waiter_calls','staff']
+  foreach t in array array['tables','menu_categories','menu_items','customers','orders','waiter_calls']
   loop
     execute format($f$
-      create policy "staff all on %1$s" on %1$s
-        for all
-        using (outlet_id in (select outlet_id from staff where auth_user_id = auth.uid()))
-        with check (outlet_id in (select outlet_id from staff where auth_user_id = auth.uid()));
+      create policy "%1$s_all_own_outlet" on %1$s for all to authenticated
+        using (outlet_id = public.auth_user_outlet_id())
+        with check (outlet_id = public.auth_user_outlet_id());
     $f$, t);
   end loop;
 exception when duplicate_object then null;
 end $$;
 
--- order_items has no outlet_id — scope via its parent order
+-- order_items: scoped via parent order's outlet_id
 do $$
 begin
-  create policy "staff all on order_items" on order_items
-    for all
-    using (
-      exists (
-        select 1 from orders o
-        where o.id = order_items.order_id
-          and o.outlet_id in (select outlet_id from staff where auth_user_id = auth.uid())
-      )
-    )
-    with check (
-      exists (
-        select 1 from orders o
-        where o.id = order_items.order_id
-          and o.outlet_id in (select outlet_id from staff where auth_user_id = auth.uid())
-      )
-    );
+  create policy "order_items_all_own_outlet" on order_items for all to authenticated
+    using (exists (
+      select 1 from orders o where o.id = order_items.order_id
+        and o.outlet_id = public.auth_user_outlet_id()
+    ))
+    with check (exists (
+      select 1 from orders o where o.id = order_items.order_id
+        and o.outlet_id = public.auth_user_outlet_id()
+    ));
 exception when duplicate_object then null;
 end $$;
 
@@ -256,7 +265,9 @@ end $$;
 -- GRANTS: restore privileges (needed if you ran `drop schema public cascade`)
 -- ============================================================
 grant usage on schema public to anon, authenticated, service_role;
-grant all on all tables    in schema public to anon, authenticated, service_role;
+grant all on all tables    in schema public to service_role;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant select on all tables in schema public to anon;
 grant all on all sequences in schema public to anon, authenticated, service_role;
 grant all on all functions in schema public to anon, authenticated, service_role;
 alter default privileges in schema public grant all on tables    to anon, authenticated, service_role;

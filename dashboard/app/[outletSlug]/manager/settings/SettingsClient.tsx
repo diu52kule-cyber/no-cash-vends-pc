@@ -1,12 +1,18 @@
 'use client';
 import { useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import { useRealtimeRow } from '@/lib/useRealtimeTable';
 import type { Outlet } from '@/lib/types';
 
 export function SettingsClient({ initialOutlet }: { initialOutlet: Outlet }) {
   const [o, setO] = useState<Outlet>(initialOutlet);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+
+  // Realtime: pull in updates from other admin sessions without losing in-progress edits
+  useRealtimeRow<Outlet>('outlets', initialOutlet.id, (fresh) => {
+    if (!saving) setO(prev => ({ ...prev, ...fresh, features: fresh.features ?? prev.features, theme: fresh.theme ?? prev.theme }));
+  });
 
   function up<K extends keyof Outlet>(k: K, v: Outlet[K]) { setO({ ...o, [k]: v }); }
   function feat(k: string, v: boolean) { setO({ ...o, features: { ...o.features, [k]: v } }); }

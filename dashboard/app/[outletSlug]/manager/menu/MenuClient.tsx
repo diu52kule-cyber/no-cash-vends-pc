@@ -1,6 +1,7 @@
 'use client';
 import { useMemo, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import { useRealtimeTable } from '@/lib/useRealtimeTable';
 import type { MenuCategory, MenuItem } from '@/lib/types';
 
 type Props = {
@@ -20,6 +21,9 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
   const [items, setItems] = useState<MenuItem[]>(initialItems);
   const [filter, setFilter] = useState<string>('all');
   const [editing, setEditing] = useState<Partial<MenuItem> | null>(null);
+
+  // Realtime: auto-update when menu_items change (other devices, customer-facing toggles, etc.)
+  useRealtimeTable<MenuItem>('menu_items', setItems, `outlet_id=eq.${outletId}`);
 
   const catName = useMemo(() => new Map(cats.map(c => [c.id, c.name])), [cats]);
   const filtered = filter === 'all' ? items : items.filter(i => i.category_id === filter);

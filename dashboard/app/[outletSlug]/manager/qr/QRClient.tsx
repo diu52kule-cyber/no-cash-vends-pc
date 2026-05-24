@@ -2,12 +2,14 @@
 import { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import { useRealtimeTable } from '@/lib/useRealtimeTable';
 import type { Table } from '@/lib/types';
 
 const CUSTOMER_BASE = process.env.NEXT_PUBLIC_CUSTOMER_SITE_URL ?? 'https://beneficial-charm-production-d3c1.up.railway.app';
 
 export function QRClient({ outletId, outletSlug, initialTables }: { outletId: string; outletSlug: string; initialTables: Table[] }) {
   const [tables, setTables] = useState<Table[]>(initialTables);
+  useRealtimeTable<Table>('tables', setTables, `outlet_id=eq.${outletId}`);
   const [num, setNum] = useState<number | ''>('');
   const [cap, setCap] = useState<number | ''>(4);
   const [zone, setZone] = useState('Rooftop');

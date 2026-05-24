@@ -9,7 +9,13 @@ const CUSTOMER_BASE = process.env.NEXT_PUBLIC_CUSTOMER_SITE_URL ?? 'https://bene
 
 export function QRClient({ outletId, outletSlug, initialTables }: { outletId: string; outletSlug: string; initialTables: Table[] }) {
   const [tables, setTables] = useState<Table[]>(initialTables);
-  useRealtimeTable<Table>('tables', setTables, `outlet_id=eq.${outletId}`);
+  useRealtimeTable<Table>('tables', setTables, `outlet_id=eq.${outletId}`, {
+    onRefetch: async () => {
+      const supa = supabaseBrowser();
+      const { data } = await supa.from('tables').select('*').eq('outlet_id', outletId).order('number');
+      if (data) setTables(data as Table[]);
+    },
+  });
   const [num, setNum] = useState<number | ''>('');
   const [cap, setCap] = useState<number | ''>(4);
   const [zone, setZone] = useState('Rooftop');

@@ -22,8 +22,14 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
   const [filter, setFilter] = useState<string>('all');
   const [editing, setEditing] = useState<Partial<MenuItem> | null>(null);
 
-  // Realtime: auto-update when menu_items change (other devices, customer-facing toggles, etc.)
-  useRealtimeTable<MenuItem>('menu_items', setItems, `outlet_id=eq.${outletId}`);
+  // Realtime: auto-update when menu_items change. Polls every 15s if websocket disconnects.
+  useRealtimeTable<MenuItem>('menu_items', setItems, `outlet_id=eq.${outletId}`, {
+    onRefetch: async () => {
+      const supa = supabaseBrowser();
+      const { data } = await supa.from('menu_items').select('*').eq('outlet_id', outletId).order('sort');
+      if (data) setItems(data as MenuItem[]);
+    },
+  });
 
   const catName = useMemo(() => new Map(cats.map(c => [c.id, c.name])), [cats]);
   const filtered = filter === 'all' ? items : items.filter(i => i.category_id === filter);

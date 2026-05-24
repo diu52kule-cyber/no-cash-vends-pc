@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import type { OrderRow, OrderItemRow, Table, Customer } from '@/lib/types';
 
@@ -36,11 +36,26 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
     return m;
   }, [items]);
 
+  // Hard refetch — used by polling fallback + focus + when subscribe drops
+  const refetch = useCallback(async () => {
+    const supa = supabaseBrowser();
+    const { data: ords } = await supa.from('orders').select('*').eq('outlet_id', outletId).eq('status', 'open').order('opened_at', { ascending: false });
+    setOrders(ords ?? []);
+    const ids = (ords ?? []).map(o => o.id);
+    if (ids.length) {
+      const { data: its } = await supa.from('order_items').select('*').in('order_id', ids).order('created_at');
+      setItems(its ?? []);
+    } else {
+      setItems([]);
+    }
+  }, [outletId]);
+
   // Realtime: subscribe to orders + order_items for this outlet
   useEffect(() => {
     const supa = supabaseBrowser();
+    let connected = false;
 
-    const ch = supa.channel(`orders-${outletId}`)
+    const ch = supa.channel(`orders-${outletId}-${Math.random().toString(36).slice(2, 8)}`)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'orders', filter: `outlet_id=eq.${outletId}` },
         (payload) => {
@@ -48,7 +63,7 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
           const oldRow = payload.old as OrderRow;
           if (payload.eventType === 'INSERT') {
             if (newRow.status === 'open') {
-              setOrders(o => [newRow, ...o]);
+              setOrders(o => o.some(r => r.id === newRow.id) ? o : [newRow, ...o]);
               setFreshOrderIds(s => new Set(s).add(newRow.id));
               setTimeout(() => setFreshOrderIds(s => { const n = new Set(s); n.delete(newRow.id); return n; }), 4000);
               playDing();
@@ -75,10 +90,24 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
             setItems(arr => arr.filter(i => i.id !== o.id));
           }
         })
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[rt:orders] status', status);
+        connected = status === 'SUBSCRIBED';
+        if (status === 'SUBSCRIBED') refetch(); // ensure no events were missed between SSR fetch and subscribe
+      });
 
-    return () => { supa.removeChannel(ch); };
-  }, [outletId]);
+    const onFocus = () => { if (document.visibilityState === 'visible') refetch(); };
+    document.addEventListener('visibilitychange', onFocus);
+
+    // Polling fallback every 12s when websocket isn't connected
+    const poll = setInterval(() => { if (!connected) refetch(); }, 12000);
+
+    return () => {
+      supa.removeChannel(ch);
+      document.removeEventListener('visibilitychange', onFocus);
+      clearInterval(poll);
+    };
+  }, [outletId, refetch]);
 
   function playDing() { try { audioRef.current?.play().catch(() => {}); } catch {/* */} }
 

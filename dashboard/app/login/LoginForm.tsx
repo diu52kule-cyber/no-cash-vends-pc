@@ -1,39 +1,25 @@
 'use client';
-import { useState, use } from 'react';
-import { useRouter } from 'next/navigation';
-import { supabaseBrowser } from '@/lib/supabase-browser';
+import { use, useActionState } from 'react';
+import { loginAction } from './actions';
 
 export function LoginForm({ nextPromise }: { nextPromise: Promise<{ next?: string }> }) {
   const next = use(nextPromise).next ?? '/raasta/manager/orders';
-  const [email, setEmail] = useState('');
-  const [pwd, setPwd] = useState('');
-  const [err, setErr] = useState('');
-  const [busy, setBusy] = useState(false);
-  const router = useRouter();
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true); setErr('');
-    const supa = supabaseBrowser();
-    const { error } = await supa.auth.signInWithPassword({ email, password: pwd });
-    if (error) { setErr(error.message); setBusy(false); return; }
-    router.replace(next);
-    router.refresh();
-  }
+  const [state, action, pending] = useActionState(loginAction, null);
 
   return (
-    <form onSubmit={submit}>
+    <form action={action}>
+      <input type="hidden" name="next" value={next} />
       <div className="field">
         <label>Email</label>
-        <input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="you@cafe.com" />
+        <input name="email" type="email" required autoComplete="email" placeholder="you@cafe.com" />
       </div>
       <div className="field">
         <label>Password</label>
-        <input type="password" required value={pwd} onChange={e => setPwd(e.target.value)} placeholder="••••••••" />
+        <input name="password" type="password" required autoComplete="current-password" placeholder="••••••••" />
       </div>
-      {err && <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 12 }}>{err}</div>}
-      <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: 12 }} disabled={busy}>
-        {busy ? 'Signing in…' : 'Sign in'}
+      {state?.error && <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 12 }}>{state.error}</div>}
+      <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: 12 }} disabled={pending}>
+        {pending ? 'Signing in…' : 'Sign in'}
       </button>
     </form>
   );

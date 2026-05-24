@@ -50,12 +50,25 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
     }
   }, [outletId]);
 
-  // Realtime: subscribe to orders + order_items for this outlet
+  // Realtime: subscribe to orders + order_items for this outlet.
+  // Must await session JWT first or Supabase treats the socket as anon → RLS denies everything.
   useEffect(() => {
     const supa = supabaseBrowser();
     let connected = false;
+    let cancelled = false;
+    let ch: ReturnType<typeof supa.channel> | null = null;
 
-    const ch = supa.channel(`orders-${outletId}-${Math.random().toString(36).slice(2, 8)}`)
+    (async () => {
+      const { data: { session } } = await supa.auth.getSession();
+      if (cancelled) return;
+      if (session?.access_token) {
+        await supa.realtime.setAuth(session.access_token);
+        console.log('[rt:orders] auth set');
+      } else {
+        console.warn('[rt:orders] NO SESSION — realtime will be RLS-blocked');
+      }
+
+      ch = supa.channel(`orders-${outletId}-${Math.random().toString(36).slice(2, 8)}`)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'orders', filter: `outlet_id=eq.${outletId}` },
         (payload) => {
@@ -90,20 +103,20 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
             setItems(arr => arr.filter(i => i.id !== o.id));
           }
         })
-      .subscribe((status) => {
-        console.log('[rt:orders] status', status);
+      .subscribe((status, err) => {
+        console.log('[rt:orders] status', status, err ?? '');
         connected = status === 'SUBSCRIBED';
-        if (status === 'SUBSCRIBED') refetch(); // ensure no events were missed between SSR fetch and subscribe
+        if (status === 'SUBSCRIBED') refetch();
       });
+    })();
 
     const onFocus = () => { if (document.visibilityState === 'visible') refetch(); };
     document.addEventListener('visibilitychange', onFocus);
-
-    // Polling fallback every 12s when websocket isn't connected
-    const poll = setInterval(() => { if (!connected) refetch(); }, 12000);
+    const poll = setInterval(() => { if (!connected) refetch(); }, 8000);
 
     return () => {
-      supa.removeChannel(ch);
+      cancelled = true;
+      if (ch) supa.removeChannel(ch);
       document.removeEventListener('visibilitychange', onFocus);
       clearInterval(poll);
     };

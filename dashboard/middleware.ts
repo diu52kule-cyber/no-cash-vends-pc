@@ -23,15 +23,15 @@ export async function middleware(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   const path = req.nextUrl.pathname;
 
-  // protect /[anything]/manager/*
-  if (/^\/[^/]+\/manager(\/|$)/.test(path) && !user) {
+  // protect /[anything]/(manager|waiter|kds)/*
+  if (/^\/[^/]+\/(manager|waiter|kds)(\/|$)/.test(path) && !user) {
     const url = req.nextUrl.clone();
     url.pathname = '/login';
     url.searchParams.set('next', path);
     return NextResponse.redirect(url);
   }
 
-  // already-logged-in users skipping /login → bounce to /raasta/manager
+  // already-logged-in users skipping /login → bounce based on role hint (default: manager orders)
   if (path === '/login' && user) {
     const url = req.nextUrl.clone();
     url.pathname = '/raasta/manager/orders';

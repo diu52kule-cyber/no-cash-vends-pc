@@ -8,6 +8,9 @@ const NAV = [
     { key: 'orders',  label: 'Orders',    href: 'orders',   icon: '🧾' },
     { key: 'menu',    label: 'Edit Menu', href: 'menu',     icon: '🍽️' },
   ]},
+  { section: 'Insights', items: [
+    { key: 'analytics', label: 'Analytics', href: 'analytics', icon: '📊' },
+  ]},
   { section: 'Setup', items: [
     { key: 'qr',       label: 'QR Codes', href: 'qr',       icon: '📱' },
     { key: 'settings', label: 'Settings', href: 'settings', icon: '⚙️' },

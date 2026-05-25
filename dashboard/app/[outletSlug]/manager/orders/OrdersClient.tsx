@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import { PaymentModal, type PaymentMethod } from './PaymentModal';
 import type { OrderRow, OrderItemRow, Table, Customer } from '@/lib/types';
 
 const STATUS_CYCLE: Record<OrderItemRow['status'], OrderItemRow['status']> = {
@@ -26,6 +27,7 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
   const [orders, setOrders] = useState<OrderRow[]>(initialOrders);
   const [items, setItems] = useState<OrderItemRow[]>(initialItems);
   const [freshOrderIds, setFreshOrderIds] = useState<Set<string>>(new Set());
+  const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const tableMap = useMemo(() => new Map(tables.map(t => [t.id, t])), [tables]);
@@ -131,6 +133,21 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
     await supa.from('order_items').update({ status: next }).eq('id', itemId);
   }
 
+  async function cancelItem(itemId: string) {
+    if (!confirm('Mark this item as cancelled? It stays on the bill but won’t be charged.')) return;
+    const supa = supabaseBrowser();
+    setItems(arr => arr.map(i => i.id === itemId ? { ...i, status: 'cancelled' } : i));
+    await supa.from('order_items').update({ status: 'cancelled' }).eq('id', itemId);
+  }
+
+  async function deleteItem(itemId: string) {
+    if (!confirm('Delete this item permanently from the bill? This cannot be undone.')) return;
+    const supa = supabaseBrowser();
+    setItems(arr => arr.filter(i => i.id !== itemId));
+    const { error } = await supa.from('order_items').delete().eq('id', itemId);
+    if (error) { alert(error.message); refetch(); }
+  }
+
   async function closeOrder(orderId: string) {
     if (!confirm('Mark this order as closed?')) return;
     const supa = supabaseBrowser();
@@ -138,29 +155,45 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
     await supa.from('orders').update({ status: 'closed', closed_at: new Date().toISOString() }).eq('id', orderId);
   }
 
-  function printBill(orderId: string) {
+  async function confirmPaymentAndPrint(orderId: string, methods: PaymentMethod[]) {
+    const supa = supabaseBrowser();
+    const csv = methods.join(',');
+    setOrders(o => o.map(r => r.id === orderId ? { ...r, payment_methods: csv } : r));
+    await supa.from('orders').update({ payment_methods: csv }).eq('id', orderId);
+    setPayingOrderId(null);
+    setTimeout(() => printBill(orderId, methods), 100);
+  }
+
+  function printBill(orderId: string, methods?: PaymentMethod[]) {
     const o = orders.find(x => x.id === orderId)!;
-    const its = itemsByOrder.get(orderId) ?? [];
+    const its = (itemsByOrder.get(orderId) ?? []).filter(i => i.status !== 'cancelled');
+    const cancelledItems = (itemsByOrder.get(orderId) ?? []).filter(i => i.status === 'cancelled');
     const table = tableMap.get(o.table_id);
     const cust = o.customer_id ? custMap.get(o.customer_id) : null;
     const subtotal = its.reduce((s, i) => s + i.price_at_order * i.qty, 0);
+    const pm = methods ?? (o.payment_methods ? o.payment_methods.split(',') as PaymentMethod[] : []);
+    const pmLabels: Record<string, string> = { cash: 'Cash 💵', upi: 'UPI 📱', card: 'Card 💳' };
     const w = window.open('', '_blank', 'width=420,height=720');
     if (!w) return;
     w.document.write(`<!doctype html><html><head><title>Bill ${o.bill_no}</title><style>
       *{margin:0;padding:0;box-sizing:border-box}body{font-family:'Courier New',monospace;padding:20px;font-size:13px}
       h2{text-align:center;font-family:Georgia,serif;margin-bottom:4px}
       .c{text-align:center}.m{color:#666}.row{display:flex;justify-content:space-between;margin:3px 0}
+      .row.strike{text-decoration:line-through;color:#aaa}
       hr{border:none;border-top:1px dashed #ccc;margin:8px 0}
       .grand{font-size:15px;font-weight:bold;border-top:2px solid #000;padding-top:6px;margin-top:6px}
+      .pay{margin-top:10px;padding:8px 0;border-top:1px dashed #ccc;border-bottom:1px dashed #ccc;font-weight:bold;text-align:center;font-size:13px}
     </style></head><body>
-      <h2>${'Raasta Nagpur'}</h2><p class="c m" style="font-size:11px">Caribbean Rooftop Lounge</p><hr>
+      <h2>Raasta Nagpur</h2><p class="c m" style="font-size:11px">Caribbean Rooftop Lounge · Dharampeth</p><hr>
       <div class="row"><span>Bill:</span><b>${o.bill_no ?? ''}</b></div>
       <div class="row"><span>Table:</span><span>${table?.number ?? ''}</span></div>
       ${cust ? `<div class="row"><span>Guest:</span><span>${cust.name}</span></div>` : ''}
       <div class="row"><span>Date:</span><span>${new Date().toLocaleString('en-IN')}</span></div><hr>
       ${its.map(i => `<div class="row"><span>${i.name_snapshot} ×${i.qty}</span><span>${currency}${(i.price_at_order * i.qty).toFixed(0)}</span></div>${i.remark ? `<div class="m" style="font-size:11px;padding-left:6px">↳ ${i.remark}</div>` : ''}`).join('')}
+      ${cancelledItems.length ? `<div class="m" style="font-size:10px;padding-top:4px">Cancelled:</div>${cancelledItems.map(i => `<div class="row strike"><span>${i.name_snapshot} ×${i.qty}</span><span>${currency}${(i.price_at_order * i.qty).toFixed(0)}</span></div>`).join('')}` : ''}
       <hr><div class="row"><span>Subtotal</span><span>${currency}${subtotal.toFixed(0)}</span></div>
       <div class="row grand"><span>TOTAL</span><span>${currency}${subtotal.toFixed(0)}</span></div>
+      ${pm.length ? `<div class="pay">Paid via: ${pm.map(m => pmLabels[m] ?? m).join(' + ')}</div>` : ''}
       <p class="c" style="margin-top:14px">Thank you 🙏</p>
     </body></html>`);
     w.document.close();
@@ -213,22 +246,30 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
               </div>
               <div className="items">
                 {its.map(i => (
-                  <div key={i.id} className="row">
+                  <div key={i.id} className="row" style={i.status === 'cancelled' ? { opacity: 0.6 } : undefined}>
                     <div className="nm">
-                      <div>{i.name_snapshot}</div>
+                      <div style={i.status === 'cancelled' ? { textDecoration: 'line-through' } : undefined}>{i.name_snapshot}</div>
                       <div className="qty">×{i.qty} · {currency}{i.price_at_order} · {currency}{i.price_at_order * i.qty}{i.added_by === 'waiter' ? ' · waiter add' : ''}</div>
                       {i.remark && <div className="remark">↳ {i.remark}</div>}
                     </div>
-                    <button className={`status-btn ${STATUS_CLASS[i.status]}`} onClick={() => cycleStatus(i.id, i.status)}>
-                      {STATUS_LABEL[i.status]}
-                    </button>
+                    <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
+                      <button className={`status-btn ${STATUS_CLASS[i.status]}`} onClick={() => cycleStatus(i.id, i.status)} title="Cycle status">
+                        {STATUS_LABEL[i.status]}
+                      </button>
+                      {i.status !== 'cancelled' && (
+                        <button onClick={() => cancelItem(i.id)} title="Cancel item (keep on bill)"
+                                style={{ color: 'var(--amber)', padding: '4px 6px', fontSize: 13, opacity: 0.6 }}>⊘</button>
+                      )}
+                      <button onClick={() => deleteItem(i.id)} title="Delete item from bill"
+                              style={{ color: 'var(--red)', padding: '4px 6px', fontSize: 14, opacity: 0.6 }}>×</button>
+                    </div>
                   </div>
                 ))}
               </div>
               <div className="f">
-                <div className="meta">{its.length} items · {pendingN} pending</div>
+                <div className="meta">{its.length} items · {pendingN} pending{o.payment_methods ? ` · paid: ${o.payment_methods}` : ''}</div>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => printBill(o.id)}>Print</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setPayingOrderId(o.id)}>Print + Pay</button>
                   <button className="btn btn-danger btn-sm" onClick={() => closeOrder(o.id)}>Close</button>
                 </div>
               </div>
@@ -236,6 +277,19 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
           );
         })}
       </div>
+
+      {payingOrderId && (() => {
+        const o = orders.find(x => x.id === payingOrderId);
+        if (!o) return null;
+        const total = (itemsByOrder.get(o.id) ?? []).filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.price_at_order * i.qty, 0);
+        return (
+          <PaymentModal
+            total={total} currency={currency}
+            onCancel={() => setPayingOrderId(null)}
+            onConfirm={(methods) => confirmPaymentAndPrint(o.id, methods)}
+          />
+        );
+      })()}
     </>
   );
 }

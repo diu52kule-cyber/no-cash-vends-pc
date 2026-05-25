@@ -33,6 +33,7 @@ export type OrderRow = {
   id: string; bill_no: string | null; outlet_id: string; table_id: string;
   customer_id: string | null; status: 'open' | 'closed' | 'cancelled';
   opened_at: string; closed_at: string | null;
+  payment_methods: string | null;
 };
 
 export type OrderItemRow = {

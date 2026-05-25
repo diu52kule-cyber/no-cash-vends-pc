@@ -26,10 +26,36 @@ export function WaiterClient({
   const [orders, setOrders] = useState<OrderRow[]>(initialOrders);
   const [items, setItems] = useState<OrderItemRow[]>(initialItems);
   const [calls, setCalls] = useState<WaiterCall[]>(initialCalls);
-  const [selectedTableId, setSelectedTableId] = useState<string | null>(initialTables[0]?.id ?? null);
+  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [showAdd, setShowAdd] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Detect viewport — keeps grid-on-mobile-only-when-no-table-selected logic
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const apply = () => setIsMobile(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  // Hardware back on Android → return to grid view (don't exit the page)
+  useEffect(() => {
+    if (!isMobile || !selectedTableId) return;
+    window.history.pushState({ waiterDetail: true }, '');
+    const onPop = () => setSelectedTableId(null);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [isMobile, selectedTableId]);
+
+  // On desktop default to first table; on mobile start at grid (no selection)
+  useEffect(() => {
+    if (!isMobile && !selectedTableId && initialTables[0]) {
+      setSelectedTableId(initialTables[0].id);
+    }
+  }, [isMobile, selectedTableId, initialTables]);
 
   const tableMap = useMemo(() => new Map(initialTables.map(t => [t.id, t])), [initialTables]);
   const custMap = useMemo(() => new Map(customers.map(c => [c.id, c])), [customers]);
@@ -183,15 +209,18 @@ export function WaiterClient({
     setShowAdd(false);
   }
 
+  // On mobile: hide grid once a table is picked (slide-in detail view)
+  const mobileView: 'grid' | 'detail' = isMobile && selectedTableId ? 'detail' : 'grid';
+
   return (
-    <div className="w-shell">
+    <div className="w-shell" data-mobile-view={mobileView}>
       <audio ref={audioRef} preload="auto" src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=" />
 
-      {/* TOP BAR */}
+      {/* TOP BAR — full on desktop, compact on mobile-grid, hidden on mobile-detail */}
       <header className="w-top">
         <div className="w-brand">
           <div className="w-logo">{outlet.name.charAt(0)}</div>
-          <div>
+          <div className="w-brand-text">
             <div className="w-outlet">{outlet.name}</div>
             <div className="w-role">Waiter · {staff.name}</div>
           </div>
@@ -200,7 +229,7 @@ export function WaiterClient({
           <div className="w-pill">{orders.length} open</div>
           {calls.length > 0 && <div className="w-pill w-pill-call">🔔 {calls.length} calling</div>}
         </div>
-        <form action="/auth/signout" method="post"><button className="w-logout">Sign out</button></form>
+        <form action="/auth/signout" method="post"><button className="w-logout" aria-label="Sign out"><span className="w-logout-text">Sign out</span><span className="w-logout-icon">⎋</span></button></form>
       </header>
 
       <div className="w-body">
@@ -254,13 +283,16 @@ export function WaiterClient({
           ) : (
             <>
               <div className="w-detail-head">
-                <div>
+                {isMobile && (
+                  <button className="w-back" onClick={() => setSelectedTableId(null)} aria-label="Back to tables">←</button>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="w-detail-title">Table {selectedTable.number} <span className="w-detail-zone">· {selectedTable.zone} · seats {selectedTable.capacity}</span></div>
                   {selectedOrder && <div className="w-detail-sub">{selectedOrder.bill_no} {selectedCust ? `· ${selectedCust.name}` : ''}</div>}
                 </div>
                 {selectedCall && (
                   <button className="w-ack" onClick={ackCall}>
-                    🔔 Calling — Acknowledge
+                    🔔 <span className="w-ack-text">Acknowledge</span>
                   </button>
                 )}
               </div>
@@ -326,20 +358,24 @@ const waiterCss = `
 .w-shell { height: 100dvh; display: flex; flex-direction: column; background: var(--bg0); overflow: hidden; }
 
 /* TOP BAR */
-.w-top { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: var(--bg1); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.w-brand { display: flex; align-items: center; gap: 12px; }
-.w-logo { width: 40px; height: 40px; border-radius: 10px; background: var(--brand); color: var(--bg1); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 20px; font-family: 'Fraunces', serif; }
-.w-outlet { font-weight: 600; font-size: 16px; }
+.w-top { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: var(--bg1); border-bottom: 1px solid var(--border); flex-shrink: 0; padding-top: max(12px, env(safe-area-inset-top)); }
+.w-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.w-logo { width: 40px; height: 40px; border-radius: 10px; background: var(--brand); color: var(--bg1); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 20px; font-family: 'Fraunces', serif; flex-shrink: 0; }
+.w-brand-text { min-width: 0; }
+.w-outlet { font-weight: 600; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .w-role { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.05em; }
-.w-top-stats { display: flex; gap: 8px; margin-left: auto; }
-.w-pill { padding: 6px 12px; border-radius: 999px; background: var(--bg3); font-size: 12px; color: var(--text2); font-weight: 500; }
+.w-top-stats { display: flex; gap: 8px; margin-left: auto; flex-shrink: 0; }
+.w-pill { padding: 6px 12px; border-radius: 999px; background: var(--bg3); font-size: 12px; color: var(--text2); font-weight: 500; white-space: nowrap; }
 .w-pill-call { background: var(--red); color: white; animation: callPulse 1.5s ease-in-out infinite; }
 @keyframes callPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(232,90,90,0.6); } 50% { box-shadow: 0 0 0 8px rgba(232,90,90,0); } }
-.w-logout { padding: 9px 16px; border-radius: 9px; background: var(--bg3); color: var(--text2); font-size: 13px; border: 1px solid var(--border); transition: all 0.15s; }
+.w-logout { padding: 9px 16px; border-radius: 9px; background: var(--bg3); color: var(--text2); font-size: 13px; border: 1px solid var(--border); transition: all 0.15s; display: flex; align-items: center; gap: 6px; }
 .w-logout:hover { background: var(--red-dim); color: var(--red); border-color: var(--red); }
+.w-logout-icon { display: none; font-size: 18px; }
 
 /* BODY SPLIT */
 .w-body { display: grid; grid-template-columns: minmax(360px, 420px) 1fr; flex: 1; overflow: hidden; gap: 0; }
+.w-back { width: 44px; height: 44px; border-radius: 12px; background: var(--bg3); font-size: 22px; color: var(--text1); display: none; align-items: center; justify-content: center; flex-shrink: 0; }
+.w-back:active { background: var(--bg4); transform: scale(0.95); }
 
 /* TABLES PANE */
 .w-tables { padding: 16px; background: var(--bg1); border-right: 1px solid var(--border); overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
@@ -423,4 +459,71 @@ const waiterCss = `
 .w-btn-lg { padding: 22px 28px; font-size: 16px; }
 
 .w-no-order { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; flex: 1; color: var(--text3); }
+
+/* ─────────────── MOBILE (≤ 768px) ─────────────── */
+@media (max-width: 768px) {
+  /* Compact top bar — text becomes icon-only */
+  .w-top { padding: 10px 14px; padding-top: max(10px, env(safe-area-inset-top)); gap: 10px; }
+  .w-brand-text .w-role { display: none; }
+  .w-brand-text .w-outlet { font-size: 14px; }
+  .w-logo { width: 34px; height: 34px; font-size: 17px; }
+  .w-pill { padding: 5px 10px; font-size: 11px; }
+  .w-logout-text { display: none; }
+  .w-logout-icon { display: block; }
+  .w-logout { padding: 0; width: 36px; height: 36px; justify-content: center; }
+
+  /* Stack as two screens */
+  .w-body { grid-template-columns: 1fr; position: relative; }
+  .w-tables, .w-detail { position: absolute; inset: 0; width: 100%; transition: transform 0.3s cubic-bezier(0.34, 1.06, 0.64, 1); }
+  .w-shell[data-mobile-view='grid']   .w-tables { transform: translateX(0); }
+  .w-shell[data-mobile-view='grid']   .w-detail { transform: translateX(100%); pointer-events: none; }
+  .w-shell[data-mobile-view='detail'] .w-tables { transform: translateX(-100%); pointer-events: none; }
+  .w-shell[data-mobile-view='detail'] .w-detail { transform: translateX(0); }
+
+  /* Bigger grid tiles, 2 cols */
+  .w-tables { padding: 14px; border-right: none; gap: 14px; }
+  .w-tgrid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .w-tbl { aspect-ratio: 1.15; padding: 16px 14px 14px; }
+  .w-tnum { font-size: 32px; }
+  .w-tzone { font-size: 11px; }
+  .w-tmeta { font-size: 14px; }
+  .w-filter { padding: 12px 6px; font-size: 13px; }
+
+  /* Detail pane spacing */
+  .w-detail { padding: 14px 16px 0; }
+  .w-detail-head { gap: 10px; align-items: center; margin-bottom: 14px; }
+  .w-back { display: flex; }
+  .w-detail-title { font-size: 20px; }
+  .w-detail-zone { display: none; }
+  .w-detail-sub { font-size: 11px; }
+
+  /* Ack button shrinks to icon + short text */
+  .w-ack { padding: 12px 14px; font-size: 13px; }
+  .w-ack-text { display: none; }
+
+  /* Larger items list with breathing room */
+  .w-items { gap: 10px; padding-right: 2px; padding-bottom: 6px; }
+  .w-item { padding: 14px; grid-template-columns: 1fr auto; gap: 10px; }
+  .w-item-name { font-size: 15px; }
+  .w-status { padding: 12px 14px; font-size: 13px; min-width: 96px; min-height: 48px; }
+
+  /* Sticky footer with safe-area padding */
+  .w-foot {
+    position: sticky; bottom: 0; left: 0; right: 0;
+    background: linear-gradient(180deg, transparent 0%, var(--bg0) 28%);
+    padding: 20px 0 max(16px, env(safe-area-inset-bottom));
+    margin-top: 10px;
+  }
+  .w-total { padding: 0 4px 4px; }
+  .w-total-v { font-size: 22px; }
+  .w-actions { grid-template-columns: 1fr; gap: 8px; }
+  .w-btn { padding: 18px; font-size: 15px; min-height: 56px; }
+  .w-btn-lg { padding: 22px; font-size: 16px; }
+}
+
+/* Very small phones */
+@media (max-width: 360px) {
+  .w-tgrid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .w-tnum { font-size: 28px; }
+}
 `;

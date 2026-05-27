@@ -30,6 +30,19 @@ export default function App() {
   const [active, setActive] = useState<ActiveOrder>(null);
   const [toast, setToast] = useState<string>('');
 
+  // ── Sync the background gradient phase so every device shows the same frame ──
+  useEffect(() => {
+    const CYCLE_SECONDS = 120;
+    const setPhase = () => {
+      const offset = (Date.now() / 1000) % CYCLE_SECONDS;
+      document.documentElement.style.setProperty('--bg-phase', `-${offset.toFixed(2)}s`);
+    };
+    setPhase();
+    // Re-sync every minute in case the tab was inactive
+    const i = setInterval(setPhase, 60_000);
+    return () => clearInterval(i);
+  }, []);
+
   // ── load outlet + table + menu, apply theme ──
   useEffect(() => {
     (async () => {

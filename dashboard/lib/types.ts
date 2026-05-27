@@ -25,7 +25,8 @@ export type MenuCategory = { id: string; outlet_id: string; name: string; sort: 
 export type MenuItem = {
   id: string; outlet_id: string; category_id: string | null;
   name: string; description: string | null; price: number;
-  serving: string | null; emoji: string | null; prep_time: number;
+  serving: string | null; emoji: string | null; image_url: string | null;
+  prep_time: number;
   is_veg: boolean; available: boolean; sort: number;
 };
 

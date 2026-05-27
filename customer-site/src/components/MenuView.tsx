@@ -83,7 +83,11 @@ export function MenuView({ menu, currency, cart, onAdd, onInc, onDec }: Props) {
                     </div>
                   </div>
                   <div className="right">
-                    <div className="emoji">{item.emoji ?? '🍽️'}</div>
+                    <div className="visual">
+                      {item.image_url
+                        ? <img src={item.image_url} alt={item.name} loading="lazy" />
+                        : <span className="emoji">{item.emoji ?? '🍽️'}</span>}
+                    </div>
                     {qty === 0 ? (
                       <button className="add-btn" onClick={() => onAdd(item)}>Add +</button>
                     ) : (

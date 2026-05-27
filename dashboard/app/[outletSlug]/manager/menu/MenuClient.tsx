@@ -2,6 +2,7 @@
 import { useMemo, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { useRealtimeTable } from '@/lib/useRealtimeTable';
+import { ImageEditor } from './ImageEditor';
 import type { MenuCategory, MenuItem } from '@/lib/types';
 
 type Props = {
@@ -13,7 +14,7 @@ type Props = {
 
 const EMPTY: Omit<MenuItem, 'id' | 'outlet_id'> = {
   category_id: null, name: '', description: '', price: 0, serving: '', emoji: '🍽️',
-  prep_time: 15, is_veg: true, available: true, sort: 0,
+  image_url: null, prep_time: 15, is_veg: true, available: true, sort: 0,
 };
 
 export function MenuClient({ outletId, currency, initialCategories, initialItems }: Props) {
@@ -21,8 +22,8 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
   const [items, setItems] = useState<MenuItem[]>(initialItems);
   const [filter, setFilter] = useState<string>('all');
   const [editing, setEditing] = useState<Partial<MenuItem> | null>(null);
+  const [editingImage, setEditingImage] = useState(false);
 
-  // Realtime: auto-update when menu_items change. Polls every 15s if websocket disconnects.
   useRealtimeTable<MenuItem>('menu_items', setItems, `outlet_id=eq.${outletId}`, {
     onRefetch: async () => {
       const supa = supabaseBrowser();
@@ -43,6 +44,23 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
   function openNew() { setEditing({ ...EMPTY, category_id: cats[0]?.id ?? null }); }
   function openEdit(i: MenuItem) { setEditing({ ...i }); }
 
+  async function uploadImage(blob: Blob) {
+    const supa = supabaseBrowser();
+    const path = `${outletId}/${editing?.id ?? 'new'}-${Date.now()}.jpg`;
+    const { error: upErr } = await supa.storage.from('menu-images').upload(path, blob, {
+      contentType: 'image/jpeg', cacheControl: '3600', upsert: true,
+    });
+    if (upErr) { alert(upErr.message); return; }
+    const { data } = supa.storage.from('menu-images').getPublicUrl(path);
+    setEditing(e => e ? { ...e, image_url: data.publicUrl } : e);
+    setEditingImage(false);
+  }
+
+  async function removeImage() {
+    if (!editing) return;
+    setEditing({ ...editing, image_url: null });
+  }
+
   async function save() {
     if (!editing) return;
     const payload = {
@@ -53,6 +71,7 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
       price: Number(editing.price ?? 0),
       serving: editing.serving ?? null,
       emoji: editing.emoji ?? '🍽️',
+      image_url: editing.image_url ?? null,
       prep_time: Number(editing.prep_time ?? 15),
       is_veg: editing.is_veg !== false,
       available: editing.available !== false,
@@ -99,7 +118,9 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
       <div className="menu-grid">
         {filtered.map(i => (
           <div key={i.id} className="menu-card">
-            <div className="img">{i.emoji ?? '🍽️'}</div>
+            <div className="img" style={i.image_url ? { backgroundImage: `url(${i.image_url})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'saturate(0.92) contrast(1.05) brightness(0.92)' } : undefined}>
+              {!i.image_url && (i.emoji ?? '🍽️')}
+            </div>
             <div className="body">
               <div className="name"><span className={`veg veg-${i.is_veg}`} />{i.name}</div>
               <div className="desc">{i.description ?? ''}</div>
@@ -118,10 +139,38 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
         {filtered.length === 0 && <div style={{ color: 'var(--text3)' }}>No items in this category.</div>}
       </div>
 
-      {editing && (
+      {editing && !editingImage && (
         <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) setEditing(null); }}>
           <div className="modal">
             <h2>{editing.id ? 'Edit item' : 'New item'}</h2>
+
+            {/* Image section */}
+            <div className="field">
+              <label>Photo</label>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <div style={{
+                  width: 84, height: 84, borderRadius: 12,
+                  background: editing.image_url
+                    ? `url(${editing.image_url}) center/cover, var(--bg3)`
+                    : 'var(--bg3)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 32, border: '1px solid var(--border)',
+                  filter: editing.image_url ? 'saturate(0.92) contrast(1.05) brightness(0.92)' : 'none',
+                  flexShrink: 0,
+                }}>
+                  {!editing.image_url && (editing.emoji ?? '🍽️')}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setEditingImage(true)}>
+                    {editing.image_url ? 'Replace / edit image' : 'Upload image'}
+                  </button>
+                  {editing.image_url && (
+                    <button className="btn btn-danger btn-sm" onClick={removeImage}>Remove image</button>
+                  )}
+                </div>
+              </div>
+            </div>
+
             <div className="field"><label>Name</label><input value={editing.name ?? ''} onChange={e => setEditing({ ...editing, name: e.target.value })} /></div>
             <div className="field"><label>Description</label><textarea rows={2} value={editing.description ?? ''} onChange={e => setEditing({ ...editing, description: e.target.value })} /></div>
             <div className="field-row">
@@ -135,7 +184,7 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
                   {cats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
-              <div className="field"><label>Emoji</label><input value={editing.emoji ?? ''} onChange={e => setEditing({ ...editing, emoji: e.target.value })} /></div>
+              <div className="field"><label>Emoji (fallback)</label><input value={editing.emoji ?? ''} onChange={e => setEditing({ ...editing, emoji: e.target.value })} /></div>
             </div>
             <div className="field-row">
               <div className="field"><label>Prep time (min)</label><input type="number" value={editing.prep_time ?? 15} onChange={e => setEditing({ ...editing, prep_time: Number(e.target.value) })} /></div>
@@ -152,6 +201,14 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
             </div>
           </div>
         </div>
+      )}
+
+      {editing && editingImage && (
+        <ImageEditor
+          initialSrc={editing.image_url ?? null}
+          onCancel={() => setEditingImage(false)}
+          onSave={uploadImage}
+        />
       )}
     </>
   );

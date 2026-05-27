@@ -34,6 +34,7 @@ export type MenuItem = {
   price: number;
   serving: string | null;
   emoji: string | null;
+  image_url: string | null;
   prep_time: number;
   is_veg: boolean;
   available: boolean;

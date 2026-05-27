@@ -49,7 +49,7 @@ r.get('/outlets/:slug/menu', ah(async (req, res) => {
   const [cats, items] = await Promise.all([
     supa.from('menu_categories').select('id, name, sort').eq('outlet_id', outlet.id).order('sort'),
     supa.from('menu_items')
-      .select('id, category_id, name, description, price, serving, emoji, prep_time, is_veg, available, sort')
+      .select('id, category_id, name, description, price, serving, emoji, image_url, prep_time, is_veg, available, sort')
       .eq('outlet_id', outlet.id).eq('available', true).order('sort'),
   ]);
   if (cats.error) throw cats.error;

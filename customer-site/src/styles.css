@@ -57,24 +57,31 @@ body::after {
   display: flex; flex-direction: column;
 }
 
-/* ─── TOP NAV ─── */
-.top {
+/* ─── STICKY MENU HEADER (top row + category bar in one fixed block) ─── */
+.menu-header {
   position: sticky; top: 0; z-index: 30;
-  padding: 16px 18px 12px;
-  display: flex; align-items: center; gap: 12px;
   background:
-    linear-gradient(180deg, rgba(10,8,7,0.95) 30%, rgba(10,8,7,0.75) 80%, transparent 100%);
-  backdrop-filter: blur(20px) saturate(160%);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
+    linear-gradient(180deg, rgba(10,8,7,0.97) 0%, rgba(10,8,7,0.92) 70%, rgba(10,8,7,0.82) 100%);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
 }
+.top {
+  padding: 14px 18px 10px;
+  display: flex; align-items: center; gap: 12px;
+}
+.top .ident { min-width: 0; }
 .top .name {
   font-family: var(--font-display); font-weight: 600; font-size: 17px; letter-spacing: 0.005em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .top .meta {
   font-size: 11px; color: var(--text-dim); margin-top: 2px;
   display: flex; align-items: center; gap: 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.top .right { margin-left: auto; display: flex; gap: 8px; }
+.top .right { margin-left: auto; display: flex; gap: 8px; flex-shrink: 0; }
 
 /* ─── LANDING ─── */
 .landing {
@@ -224,15 +231,11 @@ body::after {
 .btn-primary:active { transform: scale(0.98); }
 .btn-primary:disabled { opacity: 0.5; box-shadow: none; }
 
-/* ─── MENU TOP / CATEGORIES ─── */
+/* ─── CATEGORY BAR (lives inside the sticky .menu-header) ─── */
 .cat-bar {
-  position: sticky; top: 64px; z-index: 20;
   display: flex; gap: 8px; overflow-x: auto;
-  padding: 6px 18px 14px;
+  padding: 4px 18px 12px;
   scrollbar-width: none;
-  background: linear-gradient(180deg, rgba(10,8,7,0.95) 70%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
   /* Fade-mask the edges so chips don't hard-cut as you scroll */
   mask-image:
     linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
@@ -266,7 +269,7 @@ body::after {
   padding: 4px 18px 160px;
   display: flex; flex-direction: column; gap: 14px;
 }
-.cat-section { scroll-margin-top: 130px; }
+.cat-section { scroll-margin-top: 140px; }
 .cat-title {
   font-family: var(--font-display); font-size: 18px; font-weight: 600;
   margin: 22px 0 12px; display: flex; align-items: center; gap: 12px;
@@ -517,6 +520,51 @@ body::after {
 .st-preparing { background: rgba(80,144,216,0.18); color: #5090d8; }
 .st-delivered { background: rgba(76,175,125,0.18); color: #4caf7d; }
 .st-cancelled { background: rgba(255,255,255,0.04); color: var(--text-dim); text-decoration: line-through; }
+
+/* ─── CALL-WAITER COACHMARK ─── */
+.coach {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(8,6,5,0.55);
+  backdrop-filter: blur(5px) saturate(120%);
+  -webkit-backdrop-filter: blur(5px) saturate(120%);
+  animation: fade 0.4s ease;
+}
+.coach-spot {
+  position: fixed; transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 2px solid var(--secondary);
+  background: rgba(20,15,12,0.92);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; color: var(--secondary);
+  box-shadow: 0 0 0 5px rgba(244,196,48,0.16), 0 0 24px rgba(244,196,48,0.45);
+  animation: coachPulse 1.6s ease-in-out infinite;
+}
+@keyframes coachPulse {
+  0%,100% { box-shadow: 0 0 0 5px rgba(244,196,48,0.16), 0 0 22px rgba(244,196,48,0.4); }
+  50%     { box-shadow: 0 0 0 11px rgba(244,196,48,0.04), 0 0 36px rgba(244,196,48,0.6); }
+}
+.coach-tip {
+  position: fixed; max-width: 230px;
+  background: linear-gradient(135deg, #1d1712 0%, #14100d 100%);
+  border: 1px solid rgba(244,196,48,0.3); border-radius: 14px;
+  padding: 12px 14px; font-size: 12.5px; line-height: 1.5; color: var(--text-dim);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.6);
+  animation: coachTip 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.coach-tip strong {
+  display: block; color: var(--text); font-size: 13.5px; margin-bottom: 3px;
+  font-family: var(--font-display); font-weight: 600;
+}
+.coach-tip::before {
+  content: ''; position: absolute; top: -7px; right: 18px;
+  width: 12px; height: 12px; background: #1d1712;
+  border-left: 1px solid rgba(244,196,48,0.3); border-top: 1px solid rgba(244,196,48,0.3);
+  transform: rotate(45deg);
+}
+@keyframes coachTip {
+  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
 
 /* ─── ERROR / LOADING ─── */
 .loading { min-height: 100dvh; display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 14px; }

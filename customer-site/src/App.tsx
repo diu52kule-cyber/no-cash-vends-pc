@@ -7,7 +7,7 @@ import { Landing } from './components/Landing';
 import { NameForm } from './components/NameForm';
 import { MenuView } from './components/MenuView';
 import { CartSheet } from './components/Cart';
-import { WaiterCallBtn } from './components/WaiterCall';
+import { Coachmark } from './components/Coachmark';
 
 const LOGOS: Record<string, (p: { size?: number }) => JSX.Element> = {
   raasta: RaastaLogo,
@@ -29,6 +29,7 @@ export default function App() {
   const [cartOpen, setCartOpen] = useState(false);
   const [active, setActive] = useState<ActiveOrder>(null);
   const [toast, setToast] = useState<string>('');
+  const [showCoach, setShowCoach] = useState(false);
 
   // ── Sync the background gradient phase so every device shows the same frame ──
   useEffect(() => {
@@ -79,6 +80,20 @@ export default function App() {
 
   async function refreshActive(tableId: string) {
     try { setActive(await api.activeOrder(tableId)); } catch {/* ignore */}
+  }
+
+  // one-time Call-Waiter coachmark: surfaces ~2.5s after the menu loads
+  useEffect(() => {
+    if (phase !== 'menu' || !outlet?.features.waiter_call) return;
+    const key = `ncv:coach:waiter:${outlet.slug}`;
+    if (localStorage.getItem(key)) return;
+    const t = setTimeout(() => setShowCoach(true), 2500);
+    return () => clearTimeout(t);
+  }, [phase, outlet?.slug]);
+
+  function dismissCoach() {
+    setShowCoach(false);
+    if (outlet) localStorage.setItem(`ncv:coach:waiter:${outlet.slug}`, '1');
   }
 
   function flash(msg: string) {
@@ -172,41 +187,6 @@ export default function App() {
 
       {phase === 'menu' && outlet && table && menu && (
         <>
-          <div className="top">
-            <Logo size={36} />
-            <div>
-              <div className="name">{outlet.name}</div>
-              <div className="meta">Table {table.number} · {table.zone}{customer ? ` · ${customer.name}` : ''}</div>
-            </div>
-            {outlet.features.waiter_call && (
-              <div className="right"><WaiterCallBtn onClick={callWaiter} /></div>
-            )}
-          </div>
-
-          {active && active.items.length > 0 && (
-            <div className="active-order">
-              <div className="h">
-                <span>Your Bill</span>
-                <span className="bill">{active.bill_no ?? ''}</span>
-              </div>
-              {active.items.map(i => (
-                <div className="ao-item" key={i.id}>
-                  <div className="nm">
-                    <strong>{i.name_snapshot}</strong> × {i.qty}
-                    <span className={`st st-${i.status}`}>{i.status}</span>
-                  </div>
-                  <div>{outlet.currency}{(i.price_at_order * i.qty).toFixed(0)}</div>
-                </div>
-              ))}
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)', fontSize: 13 }}>
-                <span>Subtotal so far</span>
-                <strong style={{ color: 'var(--secondary)' }}>
-                  {outlet.currency}{active.items.reduce((s, i) => s + i.price_at_order * i.qty, 0).toFixed(0)}
-                </strong>
-              </div>
-            </div>
-          )}
-
           <MenuView
             menu={menu}
             currency={outlet.currency}
@@ -214,6 +194,38 @@ export default function App() {
             onAdd={addToCart}
             onInc={(id) => changeQty(id, +1)}
             onDec={(id) => changeQty(id, -1)}
+            header={{
+              Logo,
+              outletName: outlet.name,
+              tableNumber: table.number,
+              zone: table.zone,
+              customerName: customer?.name,
+              waiterCall: outlet.features.waiter_call,
+              onCallWaiter: callWaiter,
+            }}
+            activeOrder={active && active.items.length > 0 ? (
+              <div className="active-order">
+                <div className="h">
+                  <span>Your Bill</span>
+                  <span className="bill">{active.bill_no ?? ''}</span>
+                </div>
+                {active.items.map(i => (
+                  <div className="ao-item" key={i.id}>
+                    <div className="nm">
+                      <strong>{i.name_snapshot}</strong> × {i.qty}
+                      <span className={`st st-${i.status}`}>{i.status}</span>
+                    </div>
+                    <div>{outlet.currency}{(i.price_at_order * i.qty).toFixed(0)}</div>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)', fontSize: 13 }}>
+                  <span>Subtotal so far</span>
+                  <strong style={{ color: 'var(--secondary)' }}>
+                    {outlet.currency}{active.items.reduce((s, i) => s + i.price_at_order * i.qty, 0).toFixed(0)}
+                  </strong>
+                </div>
+              </div>
+            ) : null}
           />
 
           {cart.length > 0 && (
@@ -242,6 +254,15 @@ export default function App() {
           )}
 
           {toast && <div className="toast">{toast}</div>}
+
+          {showCoach && (
+            <Coachmark
+              targetSelector=".waiter-btn"
+              onDone={dismissCoach}
+              title="Need anything?"
+              body="Tap the bell to call a waiter — anytime."
+            />
+          )}
         </>
       )}
     </div>

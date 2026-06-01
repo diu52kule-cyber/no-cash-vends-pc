@@ -1,5 +1,16 @@
-import { useMemo, useRef, useState, useEffect } from 'react';
+import { useMemo, useRef, useState, useEffect, type ReactNode } from 'react';
 import type { CartLine, MenuCategory, MenuItem } from '../types';
+import { WaiterCallBtn } from './WaiterCall';
+
+type HeaderInfo = {
+  Logo: (p: { size?: number }) => JSX.Element;
+  outletName: string;
+  tableNumber: number | string;
+  zone: string;
+  customerName?: string;
+  waiterCall: boolean;
+  onCallWaiter: () => void;
+};
 
 type Props = {
   menu: { categories: MenuCategory[]; items: MenuItem[] };
@@ -8,11 +19,14 @@ type Props = {
   onAdd: (item: MenuItem) => void;
   onInc: (itemId: string) => void;
   onDec: (itemId: string) => void;
+  header: HeaderInfo;
+  activeOrder?: ReactNode;
 };
 
-export function MenuView({ menu, currency, cart, onAdd, onInc, onDec }: Props) {
+export function MenuView({ menu, currency, cart, onAdd, onInc, onDec, header, activeOrder }: Props) {
   const [active, setActive] = useState<string>(menu.categories[0]?.id ?? '');
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const catBarRef = useRef<HTMLDivElement>(null);
 
   const grouped = useMemo(() => {
     const g: Record<string, MenuItem[]> = {};
@@ -34,29 +48,58 @@ export function MenuView({ menu, currency, cart, onAdd, onInc, onDec }: Props) {
         const visible = entries.filter(e => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
         if (visible[0]) setActive(visible[0].target.getAttribute('data-cat-id') || '');
       },
-      { rootMargin: '-90px 0px -60% 0px', threshold: 0 }
+      { rootMargin: '-130px 0px -60% 0px', threshold: 0 }
     );
     Object.values(sectionRefs.current).forEach(el => el && obs.observe(el));
     return () => obs.disconnect();
   }, [menu]);
 
+  // keep the active chip scrolled into view inside the horizontal bar
+  useEffect(() => {
+    const bar = catBarRef.current;
+    if (!bar) return;
+    const chip = bar.querySelector<HTMLElement>(`[data-chip-id="${active}"]`);
+    if (chip) {
+      const target = chip.offsetLeft - bar.clientWidth / 2 + chip.clientWidth / 2;
+      bar.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
+    }
+  }, [active]);
+
   function scrollToCat(id: string) {
     sectionRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  const { Logo, outletName, tableNumber, zone, customerName, waiterCall, onCallWaiter } = header;
+
   return (
     <>
-      <div className="cat-bar">
-        {menu.categories.map(c => (
-          <button
-            key={c.id}
-            className={`cat-chip ${active === c.id ? 'active' : ''}`}
-            onClick={() => scrollToCat(c.id)}
-          >
-            {c.name}
-          </button>
-        ))}
+      <div className="menu-header">
+        <div className="top">
+          <Logo size={36} />
+          <div className="ident">
+            <div className="name">{outletName}</div>
+            <div className="meta">Table {tableNumber} · {zone}{customerName ? ` · ${customerName}` : ''}</div>
+          </div>
+          {waiterCall && (
+            <div className="right"><WaiterCallBtn onClick={onCallWaiter} /></div>
+          )}
+        </div>
+
+        <div className="cat-bar" ref={catBarRef}>
+          {menu.categories.map(c => (
+            <button
+              key={c.id}
+              data-chip-id={c.id}
+              className={`cat-chip ${active === c.id ? 'active' : ''}`}
+              onClick={() => scrollToCat(c.id)}
+            >
+              {c.name}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {activeOrder}
 
       <div className="menu-list">
         {menu.categories.map(c => grouped[c.id]?.length ? (

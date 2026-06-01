@@ -195,11 +195,10 @@ export default function App() {
             onInc={(id) => changeQty(id, +1)}
             onDec={(id) => changeQty(id, -1)}
             header={{
-              Logo,
               outletName: outlet.name,
+              tagline: outlet.tagline ?? '',
               tableNumber: table.number,
               zone: table.zone,
-              customerName: customer?.name,
               waiterCall: outlet.features.waiter_call,
               onCallWaiter: callWaiter,
             }}

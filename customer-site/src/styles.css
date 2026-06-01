@@ -68,20 +68,85 @@ body::after {
   box-shadow: 0 8px 24px rgba(0,0,0,0.35);
 }
 .top {
-  padding: 14px 18px 10px;
+  padding: 16px 18px 8px;
   display: flex; align-items: center; gap: 12px;
 }
-.top .ident { min-width: 0; }
-.top .name {
-  font-family: var(--font-display); font-weight: 600; font-size: 17px; letter-spacing: 0.005em;
+.brand { min-width: 0; }
+.wordmark {
+  font-family: var(--font-display); font-weight: 600;
+  font-size: 27px; line-height: 1; letter-spacing: 0.14em; color: #FFF8EC;
+  white-space: nowrap;
+}
+.wordmark .hl { color: var(--secondary); }
+.tagline {
+  margin-top: 7px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.22em;
+  color: var(--secondary); text-transform: uppercase;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.top .meta {
-  font-size: 11px; color: var(--text-dim); margin-top: 2px;
-  display: flex; align-items: center; gap: 6px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.header-actions {
+  margin-left: auto; display: flex; align-items: center; gap: 10px; flex-shrink: 0;
 }
-.top .right { margin-left: auto; display: flex; gap: 8px; flex-shrink: 0; }
+
+/* Table badge (right pill) */
+.table-badge {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 14px; border-radius: 999px;
+  border: 1px solid rgba(244,196,48,0.42);
+  background:
+    radial-gradient(at 100% 0%, rgba(244,196,48,0.16), transparent 70%),
+    rgba(244,196,48,0.04);
+  color: var(--secondary);
+}
+.table-badge .ic { display: flex; opacity: 0.85; }
+.table-badge .tnum {
+  font-family: var(--font-display); font-size: 14px; font-weight: 600;
+  letter-spacing: 0.06em; line-height: 1; color: var(--secondary);
+}
+.table-badge .tzone {
+  font-size: 8px; font-weight: 600; letter-spacing: 0.18em;
+  color: rgba(244,196,48,0.7); margin-top: 3px; text-transform: uppercase;
+}
+
+/* Search + Veg row */
+.search-row {
+  display: flex; gap: 10px; padding: 6px 18px 10px;
+}
+.search-box {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px;
+  padding: 11px 14px; border-radius: 14px;
+  background: rgba(0,0,0,0.42);
+  border: 1px solid rgba(255,255,255,0.07);
+  transition: border-color 0.2s, background 0.2s;
+}
+.search-box:focus-within { border-color: rgba(244,196,48,0.4); background: rgba(0,0,0,0.55); }
+.search-box .search-ic { color: var(--text-dim); display: flex; flex-shrink: 0; }
+.search-box input {
+  flex: 1; min-width: 0; background: none; border: none; outline: none; font-size: 14px;
+}
+.search-box input::placeholder { color: var(--text-dim); }
+.search-clear {
+  color: var(--text-dim); font-size: 20px; line-height: 1; padding: 0 2px; flex-shrink: 0;
+}
+.veg-toggle {
+  display: flex; align-items: center; gap: 8px; padding: 0 15px; border-radius: 14px;
+  background: rgba(0,0,0,0.42); border: 1px solid rgba(255,255,255,0.07);
+  font-size: 13px; font-weight: 600; color: var(--text-dim);
+  flex-shrink: 0; transition: all 0.2s ease;
+}
+.veg-toggle .veg-box {
+  width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid #4caf7d;
+  position: relative; flex-shrink: 0; transition: all 0.2s ease;
+}
+.veg-toggle.on {
+  color: var(--text); border-color: rgba(76,175,125,0.5); background: rgba(76,175,125,0.1);
+}
+.veg-toggle.on .veg-box::after {
+  content: ''; position: absolute; inset: 2px; border-radius: 2px; background: #4caf7d;
+}
+
+.menu-empty {
+  text-align: center; color: var(--text-dim); padding: 56px 24px; font-size: 14px; line-height: 1.6;
+}
 
 /* ─── LANDING ─── */
 .landing {
@@ -269,7 +334,7 @@ body::after {
   padding: 4px 18px 160px;
   display: flex; flex-direction: column; gap: 14px;
 }
-.cat-section { scroll-margin-top: 140px; }
+.cat-section { scroll-margin-top: 172px; }
 .cat-title {
   font-family: var(--font-display); font-size: 18px; font-weight: 600;
   margin: 22px 0 12px; display: flex; align-items: center; gap: 12px;

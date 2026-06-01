@@ -46,6 +46,12 @@ export type OrderItemRow = {
 
 export type Customer = { id: string; name: string; phone: string };
 
+export type WaiterCall = {
+  id: string; outlet_id: string; table_id: string;
+  status: 'open' | 'answered'; reason: string | null;
+  created_at: string; answered_at: string | null;
+};
+
 export type Staff = {
   id: string; outlet_id: string; auth_user_id: string | null;
   name: string; role: 'admin' | 'manager' | 'waiter' | 'chef';

@@ -6,6 +6,7 @@ import type { Outlet, Staff } from '@/lib/types';
 const NAV = [
   { section: 'Operations', items: [
     { key: 'orders',  label: 'Orders',    href: 'orders',   icon: '🧾' },
+    { key: 'tables',  label: 'Tables',    href: 'tables',   icon: '🪑' },
     { key: 'menu',    label: 'Edit Menu', href: 'menu',     icon: '🍽️' },
   ]},
   { section: 'Insights', items: [

@@ -115,7 +115,6 @@ export function MenuView({ menu, currency, cart, onAdd, onInc, onDec, header, ac
             {tagline && <div className="tagline">{tagline}</div>}
           </div>
           <div className="header-actions">
-            {waiterCall && <WaiterCallBtn onClick={onCallWaiter} />}
             <div className="table-badge">
               <span className="ic"><TableIcon /></span>
               <div>
@@ -123,6 +122,7 @@ export function MenuView({ menu, currency, cart, onAdd, onInc, onDec, header, ac
                 <div className="tzone">{zoneLabel}</div>
               </div>
             </div>
+            {waiterCall && <WaiterCallBtn onClick={onCallWaiter} />}
           </div>
         </div>
 

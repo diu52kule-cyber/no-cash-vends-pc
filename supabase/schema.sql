@@ -281,7 +281,7 @@ insert into outlets (slug, name, tagline, address, phone, email, gstin, theme, f
 values (
   'raasta',
   'Raasta Nagpur',
-  'Caribbean Rooftop Lounge · Dharampeth',
+  'One Love · Infinite Flavours',
   '20th Floor, Ved Solitaire, 5th Cross B St, Dharampeth Extension, Nagpur',
   '+91 99999 00000',
   'hello@raastanagpur.com',

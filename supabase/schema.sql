@@ -131,10 +131,26 @@ create table if not exists order_items (
   status text not null default 'pending' check (status in ('pending','preparing','delivered','cancelled')),
   remark text,
   added_by text not null default 'customer' check (added_by in ('customer','waiter')),
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  status_changed_at timestamptz default now()   -- when status last moved (KDS section sort)
 );
 
 create index if not exists order_items_order_idx on order_items (order_id);
+
+-- bump status_changed_at whenever an item's status changes (drives KDS section sort)
+create or replace function touch_order_item_status()
+returns trigger language plpgsql as $$
+begin
+  if NEW.status is distinct from OLD.status then
+    NEW.status_changed_at := now();
+  end if;
+  return NEW;
+end $$;
+
+drop trigger if exists trg_touch_item_status on order_items;
+create trigger trg_touch_item_status
+  before update on order_items
+  for each row execute function touch_order_item_status();
 
 -- ============================================================
 -- WAITER CALLS

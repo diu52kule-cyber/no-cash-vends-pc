@@ -6,11 +6,14 @@ import type { Outlet, Table, OrderRow, OrderItemRow, Customer } from '@/lib/type
 type View = 'order' | 'table';
 type Col = 'pending' | 'preparing' | 'delivered';
 
-const COLS: { key: Col; label: string }[] = [
-  { key: 'pending', label: 'Pending' },
-  { key: 'preparing', label: 'Preparing' },
-  { key: 'delivered', label: 'Delivered' },
+const COLS: { key: Col; label: string; dir: 'asc' | 'desc' }[] = [
+  { key: 'pending', label: 'Pending', dir: 'asc' },       // oldest waiting first
+  { key: 'preparing', label: 'Preparing', dir: 'asc' },   // oldest cooking first
+  { key: 'delivered', label: 'Prepared', dir: 'desc' },   // newest ready first (serve cue)
 ];
+
+// time an item entered its current section (falls back to order time)
+const enteredAt = (i: OrderItemRow) => +new Date(i.status_changed_at ?? i.created_at);
 const NEXT: Record<Col, Col> = { pending: 'preparing', preparing: 'delivered', delivered: 'delivered' };
 const PREV: Record<Col, Col> = { pending: 'pending', preparing: 'pending', delivered: 'preparing' };
 
@@ -47,7 +50,7 @@ export function KdsClient({
   }, [items, orders]);
 
   const tickets = useMemo(() => {
-    const build = (status: Col) => {
+    const build = (status: Col, dir: 'asc' | 'desc') => {
       const its = liveItems.filter(i => i.status === status);
       const groups = new Map<string, OrderItemRow[]>();
       its.forEach(i => {
@@ -56,21 +59,29 @@ export function KdsClient({
         const a = groups.get(key) ?? []; a.push(i); groups.set(key, a);
       });
       const list = [...groups.entries()].map(([key, gitems]) => {
-        const sorted = [...gitems].sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at));
+        // sort items inside a ticket by when they entered this section
+        const sorted = [...gitems].sort((a, b) => dir === 'asc' ? enteredAt(a) - enteredAt(b) : enteredAt(b) - enteredAt(a));
         const order = orderMap.get(sorted[0].order_id);
         const table = order ? tableMap.get(order.table_id) : null;
         const cust = order?.customer_id ? custMap.get(order.customer_id) : null;
-        const oldest = Math.min(...sorted.map(i => +new Date(i.created_at)));
+        // ticket's position = oldest-in-section (asc cols) or newest-in-section (desc col)
+        const stamp = dir === 'asc'
+          ? Math.min(...sorted.map(enteredAt))
+          : Math.max(...sorted.map(enteredAt));
         const title = view === 'order' ? (order?.bill_no ?? 'Order') : `Table ${table?.number ?? '?'}`;
         const subtitle = view === 'order'
           ? `Table ${table?.number ?? '?'}${cust ? ` · ${cust.name}` : ''}`
           : `${order?.bill_no ?? ''}${cust ? ` · ${cust.name}` : ''}`;
-        return { key, title, subtitle, items: sorted, oldest };
+        return { key, title, subtitle, items: sorted, stamp };
       });
-      list.sort((a, b) => a.oldest - b.oldest);
+      list.sort((a, b) => dir === 'asc' ? a.stamp - b.stamp : b.stamp - a.stamp);
       return list;
     };
-    return { pending: build('pending'), preparing: build('preparing'), delivered: build('delivered') };
+    return {
+      pending: build('pending', 'asc'),
+      preparing: build('preparing', 'asc'),
+      delivered: build('delivered', 'desc'),
+    };
   }, [liveItems, view, orderMap, tableMap, custMap]);
 
   const counts = {
@@ -128,7 +139,8 @@ export function KdsClient({
   // ── status actions ───────────────────────────────────────────────
   async function setStatus(ids: string[], status: Col) {
     if (!ids.length) return;
-    setItems(a => a.map(i => ids.includes(i.id) ? { ...i, status } : i)); // optimistic
+    const at = new Date().toISOString();
+    setItems(a => a.map(i => ids.includes(i.id) ? { ...i, status, status_changed_at: at } : i)); // optimistic
     await supabaseBrowser().from('order_items').update({ status }).in('id', ids);
   }
   const advance = (i: OrderItemRow) => setStatus([i.id], NEXT[i.status as Col]);
@@ -173,7 +185,7 @@ export function KdsClient({
             <div className="kx-tickets">
               {tickets[key].length === 0 && <div className="kx-empty">Nothing here</div>}
               {tickets[key].map(t => {
-                const age = Math.max(0, Math.round((now - t.oldest) / 60000));
+                const age = Math.max(0, Math.round((now - t.stamp) / 60000));
                 return (
                   <div key={t.key} className="kx-ticket">
                     <div className="kx-thead">

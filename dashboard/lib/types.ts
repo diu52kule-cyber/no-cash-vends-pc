@@ -42,6 +42,7 @@ export type OrderItemRow = {
   name_snapshot: string; price_at_order: number; qty: number;
   status: 'pending' | 'preparing' | 'delivered' | 'cancelled';
   remark: string | null; added_by: 'customer' | 'waiter'; created_at: string;
+  status_changed_at?: string;
 };
 
 export type Customer = { id: string; name: string; phone: string };

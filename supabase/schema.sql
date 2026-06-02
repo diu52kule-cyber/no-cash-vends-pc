@@ -174,8 +174,11 @@ create table if not exists outlet_counters (
   next_bill int not null default 1001
 );
 
+-- SECURITY DEFINER so the trigger can write to outlet_counters (RLS-protected)
+-- when an authenticated waiter/manager creates an order from the dashboard.
 create or replace function assign_bill_no()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql
+security definer set search_path = public, pg_temp as $$
 declare
   n int;
   prefix text;

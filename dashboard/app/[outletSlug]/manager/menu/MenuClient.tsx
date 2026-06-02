@@ -18,11 +18,12 @@ const EMPTY: Omit<MenuItem, 'id' | 'outlet_id'> = {
 };
 
 export function MenuClient({ outletId, currency, initialCategories, initialItems }: Props) {
-  const [cats] = useState<MenuCategory[]>(initialCategories);
+  const [cats, setCats] = useState<MenuCategory[]>(initialCategories);
   const [items, setItems] = useState<MenuItem[]>(initialItems);
   const [filter, setFilter] = useState<string>('all');
   const [editing, setEditing] = useState<Partial<MenuItem> | null>(null);
   const [editingImage, setEditingImage] = useState(false);
+  const [managingCats, setManagingCats] = useState(false);
 
   useRealtimeTable<MenuItem>('menu_items', setItems, `outlet_id=eq.${outletId}`, {
     onRefetch: async () => {
@@ -32,8 +33,67 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
     },
   });
 
+  useRealtimeTable<MenuCategory>('menu_categories', setCats, `outlet_id=eq.${outletId}`, {
+    debug: false,
+    onRefetch: async () => {
+      const supa = supabaseBrowser();
+      const { data } = await supa.from('menu_categories').select('*').eq('outlet_id', outletId).order('sort');
+      if (data) setCats(data as MenuCategory[]);
+    },
+  });
+
+  const sortedCats = useMemo(() => [...cats].sort((a, b) => a.sort - b.sort), [cats]);
+
+  async function addCategory(name: string) {
+    const supa = supabaseBrowser();
+    const sort = sortedCats.length ? Math.max(...sortedCats.map(c => c.sort)) + 1 : 0;
+    const { data, error } = await supa.from('menu_categories')
+      .insert({ outlet_id: outletId, name: name.trim(), sort }).select().single();
+    if (error) return alert(error.message);
+    setCats(arr => arr.some(c => c.id === data.id) ? arr : [...arr, data as MenuCategory]);
+  }
+
+  async function renameCategory(id: string, name: string) {
+    const supa = supabaseBrowser();
+    setCats(arr => arr.map(c => c.id === id ? { ...c, name } : c)); // optimistic
+    const { error } = await supa.from('menu_categories').update({ name: name.trim() }).eq('id', id);
+    if (error) alert(error.message);
+  }
+
+  async function deleteCategory(id: string) {
+    const inCat = items.filter(i => i.category_id === id).length;
+    const msg = inCat
+      ? `Delete this category? Its ${inCat} item${inCat === 1 ? '' : 's'} will become uncategorised (not deleted).`
+      : 'Delete this category?';
+    if (!confirm(msg)) return;
+    const supa = supabaseBrowser();
+    setCats(arr => arr.filter(c => c.id !== id));
+    setItems(arr => arr.map(i => i.category_id === id ? { ...i, category_id: null } : i));
+    if (filter === id) setFilter('all');
+    const { error } = await supa.from('menu_categories').delete().eq('id', id);
+    if (error) alert(error.message);
+  }
+
+  async function moveCategory(id: string, dir: -1 | 1) {
+    const ordered = sortedCats;
+    const idx = ordered.findIndex(c => c.id === id);
+    const swap = idx + dir;
+    if (swap < 0 || swap >= ordered.length) return;
+    const a = ordered[idx], b = ordered[swap];
+    setCats(arr => arr.map(c => c.id === a.id ? { ...c, sort: b.sort } : c.id === b.id ? { ...c, sort: a.sort } : c));
+    const supa = supabaseBrowser();
+    await Promise.all([
+      supa.from('menu_categories').update({ sort: b.sort }).eq('id', a.id),
+      supa.from('menu_categories').update({ sort: a.sort }).eq('id', b.id),
+    ]);
+  }
+
   const catName = useMemo(() => new Map(cats.map(c => [c.id, c.name])), [cats]);
-  const filtered = filter === 'all' ? items : items.filter(i => i.category_id === filter);
+  const filtered = filter === 'all'
+    ? items
+    : filter === '__uncat'
+      ? items.filter(i => !i.category_id)
+      : items.filter(i => i.category_id === filter);
 
   async function toggleAvail(item: MenuItem) {
     const supa = supabaseBrowser();
@@ -41,7 +101,7 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
     await supa.from('menu_items').update({ available: !item.available }).eq('id', item.id);
   }
 
-  function openNew() { setEditing({ ...EMPTY, category_id: cats[0]?.id ?? null }); }
+  function openNew() { setEditing({ ...EMPTY, category_id: sortedCats[0]?.id ?? null }); }
   function openEdit(i: MenuItem) { setEditing({ ...i }); }
 
   async function uploadImage(blob: Blob) {
@@ -109,8 +169,10 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
         <div style={{ display: 'flex', gap: 8 }}>
           <select value={filter} onChange={e => setFilter(e.target.value)} style={{ width: 180 }}>
             <option value="all">All categories</option>
-            {cats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {sortedCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            <option value="__uncat">Uncategorised</option>
           </select>
+          <button className="btn btn-ghost" onClick={() => setManagingCats(true)}>Categories</button>
           <button className="btn btn-primary" onClick={openNew}>+ Add item</button>
         </div>
       </div>
@@ -181,7 +243,7 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
               <div className="field"><label>Category</label>
                 <select value={editing.category_id ?? ''} onChange={e => setEditing({ ...editing, category_id: e.target.value || null })}>
                   <option value="">— none —</option>
-                  {cats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  {sortedCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
               <div className="field"><label>Emoji (fallback)</label><input value={editing.emoji ?? ''} onChange={e => setEditing({ ...editing, emoji: e.target.value })} /></div>
@@ -210,6 +272,81 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
           onSave={uploadImage}
         />
       )}
+
+      {managingCats && (
+        <CategoryManager
+          cats={sortedCats}
+          counts={items.reduce((m, i) => { if (i.category_id) m[i.category_id] = (m[i.category_id] ?? 0) + 1; return m; }, {} as Record<string, number>)}
+          onAdd={addCategory}
+          onRename={renameCategory}
+          onDelete={deleteCategory}
+          onMove={moveCategory}
+          onClose={() => setManagingCats(false)}
+        />
+      )}
     </>
+  );
+}
+
+function CategoryManager({
+  cats, counts, onAdd, onRename, onDelete, onMove, onClose,
+}: {
+  cats: MenuCategory[];
+  counts: Record<string, number>;
+  onAdd: (name: string) => void | Promise<void>;
+  onRename: (id: string, name: string) => void | Promise<void>;
+  onDelete: (id: string) => void | Promise<void>;
+  onMove: (id: string, dir: -1 | 1) => void | Promise<void>;
+  onClose: () => void;
+}) {
+  const [newName, setNewName] = useState('');
+  return (
+    <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal">
+        <h2>Categories</h2>
+        <p style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 14 }}>
+          Add, rename, reorder or remove categories. Order here is the order shown on the customer menu.
+        </p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+          {cats.length === 0 && <div style={{ color: 'var(--text3)', fontSize: 13 }}>No categories yet — add your first below.</div>}
+          {cats.map((c, idx) => (
+            <div key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <button className="cat-move" onClick={() => onMove(c.id, -1)} disabled={idx === 0} aria-label="Move up">▲</button>
+                <button className="cat-move" onClick={() => onMove(c.id, 1)} disabled={idx === cats.length - 1} aria-label="Move down">▼</button>
+              </div>
+              <input
+                defaultValue={c.name}
+                onBlur={e => { const v = e.target.value.trim(); if (v && v !== c.name) onRename(c.id, v); }}
+                style={{ flex: 1 }}
+              />
+              <span style={{ fontSize: 11, color: 'var(--text3)', minWidth: 54, textAlign: 'right' }}>
+                {counts[c.id] ?? 0} item{(counts[c.id] ?? 0) === 1 ? '' : 's'}
+              </span>
+              <button className="btn btn-danger btn-sm" onClick={() => onDelete(c.id)}>Delete</button>
+            </div>
+          ))}
+        </div>
+
+        <div className="field">
+          <label>Add category</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={newName}
+              placeholder="e.g. Desserts"
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && newName.trim()) { onAdd(newName); setNewName(''); } }}
+              style={{ flex: 1 }}
+            />
+            <button className="btn btn-primary" disabled={!newName.trim()} onClick={() => { onAdd(newName); setNewName(''); }}>Add</button>
+          </div>
+        </div>
+
+        <div className="actions" style={{ marginTop: 18 }}>
+          <button className="btn btn-ghost" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
   );
 }

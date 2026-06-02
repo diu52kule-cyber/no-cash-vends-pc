@@ -26,6 +26,7 @@ export function TablesClient({ outletId, currency, tables, initialOrders, initia
   const [items, setItems] = useState<OrderItemRow[]>(initialItems);
   const [calls, setCalls] = useState<WaiterCall[]>(initialCalls);
   const [now, setNow] = useState(() => Date.now());
+  const [filter, setFilter] = useState<'all' | 'empty' | 'occupied' | 'called'>('all');
 
   // tick the "open for X min" labels
   useEffect(() => {
@@ -117,20 +118,41 @@ export function TablesClient({ outletId, currency, tables, initialOrders, initia
   const empty = tables.length - occupied;
   const openCalls = calls.filter(c => c.status === 'open').length;
 
+  const tableMatches = useCallback((t: Table) => {
+    const occ = orderByTable.has(t.id);
+    const called = callsByTable.has(t.id);
+    if (filter === 'empty') return !occ;
+    if (filter === 'occupied') return occ;
+    if (filter === 'called') return called;
+    return true;
+  }, [filter, orderByTable, callsByTable]);
+
+  const filterLabel = filter === 'all' ? '' :
+    filter === 'empty' ? ' · showing empty' :
+    filter === 'occupied' ? ' · showing occupied' : ' · showing waiter calls';
+
   return (
     <>
       <div className="page-h">
         <div>
           <h1>Tables</h1>
-          <p>{empty} empty · {occupied} occupied · {tables.length} total</p>
+          <p>{empty} empty · {occupied} occupied · {tables.length} total{filterLabel}</p>
         </div>
       </div>
 
       <div className="stat-grid">
-        <div className="stat"><div className="lbl">Empty tables</div><div className="val gold">{empty}</div></div>
-        <div className="stat"><div className="lbl">Occupied</div><div className="val">{occupied}</div></div>
-        <div className="stat"><div className="lbl">Total tables</div><div className="val">{tables.length}</div></div>
-        <div className="stat"><div className="lbl">Waiter calls</div><div className="val" style={openCalls ? { color: 'var(--red)' } : undefined}>{openCalls}</div></div>
+        <button className={`stat stat-btn ${filter === 'empty' ? 'active' : ''}`} onClick={() => setFilter(f => f === 'empty' ? 'all' : 'empty')}>
+          <div className="lbl">Empty tables</div><div className="val gold">{empty}</div>
+        </button>
+        <button className={`stat stat-btn ${filter === 'occupied' ? 'active' : ''}`} onClick={() => setFilter(f => f === 'occupied' ? 'all' : 'occupied')}>
+          <div className="lbl">Occupied</div><div className="val">{occupied}</div>
+        </button>
+        <button className={`stat stat-btn ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>
+          <div className="lbl">Total tables</div><div className="val">{tables.length}</div>
+        </button>
+        <button className={`stat stat-btn ${filter === 'called' ? 'active' : ''}`} onClick={() => setFilter(f => f === 'called' ? 'all' : 'called')}>
+          <div className="lbl">Waiter calls</div><div className="val" style={openCalls ? { color: 'var(--red)' } : undefined}>{openCalls}</div>
+        </button>
       </div>
 
       {tables.length === 0 && (
@@ -139,11 +161,20 @@ export function TablesClient({ outletId, currency, tables, initialOrders, initia
         </div>
       )}
 
-      {zones.map(([zone, zts]) => (
+      {tables.length > 0 && zones.every(([, zts]) => zts.filter(tableMatches).length === 0) && (
+        <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text3)' }}>
+          No tables match this filter.
+        </div>
+      )}
+
+      {zones.map(([zone, zts]) => {
+        const shown = zts.filter(tableMatches);
+        if (shown.length === 0) return null;
+        return (
         <div key={zone} style={{ marginBottom: 26 }}>
           <div className="nav-head" style={{ padding: '0 0 10px' }}>{zone}</div>
           <div className="floor-grid">
-            {zts.map(t => {
+            {shown.map(t => {
               const order = orderByTable.get(t.id);
               const its = order ? (itemsByOrder.get(order.id) ?? []).filter(i => i.status !== 'cancelled') : [];
               const total = its.reduce((s, i) => s + i.price_at_order * i.qty, 0);
@@ -181,7 +212,8 @@ export function TablesClient({ outletId, currency, tables, initialOrders, initia
             })}
           </div>
         </div>
-      ))}
+        );
+      })}
     </>
   );
 }

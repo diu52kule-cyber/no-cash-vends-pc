@@ -47,6 +47,15 @@ export function Sidebar({ outlet, staff }: { outlet: Outlet; staff: Staff }) {
         </div>
       ))}
 
+      <div>
+        <div className="nav-head">Kitchen</div>
+        <a href={`/${outlet.slug}/kds`} target="_blank" rel="noopener" className="nav-item">
+          <span className="icon">👨‍🍳</span>
+          <span>Kitchen Display</span>
+          <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text4)' }}>↗</span>
+        </a>
+      </div>
+
       <div className="me">
         <div className="av">{staff.name.split(' ').map(p => p[0]).slice(0, 2).join('')}</div>
         <div className="info">

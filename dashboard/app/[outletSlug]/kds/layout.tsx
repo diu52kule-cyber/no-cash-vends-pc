@@ -1,5 +1,6 @@
 import { redirect, notFound } from 'next/navigation';
 import { supabaseServer } from '@/lib/supabase-server';
+import { canAccess, roleHome, type Role } from '@/lib/access';
 import type { Outlet, Staff } from '@/lib/types';
 
 export default async function KdsLayout({
@@ -16,7 +17,7 @@ export default async function KdsLayout({
 
   const { data: staff } = await supa.from('staff')
     .select('*').eq('auth_user_id', user.id).eq('outlet_id', (outlet as Outlet).id).maybeSingle();
-  if (!staff) {
+  if (!staff || !(staff as Staff).active) {
     return (
       <div className="login-bg">
         <div className="login-card">
@@ -27,6 +28,9 @@ export default async function KdsLayout({
       </div>
     );
   }
+
+  const role = (staff as Staff).role as Role;
+  if (!canAccess(role, 'kds')) redirect(`/${outletSlug}/${roleHome(role)}`);
 
   return <div className="kds-root" data-staff={(staff as Staff).name}>{children}</div>;
 }

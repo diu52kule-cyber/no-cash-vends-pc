@@ -8,7 +8,7 @@ export default async function OrdersPage({ params }: { params: Promise<{ outletS
   const { outletSlug } = await params;
   const supa = await supabaseServer();
 
-  const { data: outlet } = await supa.from('outlets').select('id, currency, cgst, sgst, service_charge').eq('slug', outletSlug).single();
+  const { data: outlet } = await supa.from('outlets').select('id, name, tagline, gstin, currency, cgst, sgst, service_charge').eq('slug', outletSlug).single();
   const { data: orders } = await supa.from('orders').select('*').eq('outlet_id', outlet!.id).eq('status', 'open').order('opened_at', { ascending: false });
   const orderIds = (orders ?? []).map((o: OrderRow) => o.id);
   const [{ data: items }, { data: tables }, { data: customers }] = await Promise.all([
@@ -22,7 +22,13 @@ export default async function OrdersPage({ params }: { params: Promise<{ outletS
   return (
     <OrdersClient
       outletId={outlet!.id}
+      outletName={outlet!.name}
+      outletTagline={outlet!.tagline ?? ''}
+      gstin={outlet!.gstin ?? ''}
       currency={outlet!.currency}
+      cgst={Number(outlet!.cgst ?? 0)}
+      sgst={Number(outlet!.sgst ?? 0)}
+      serviceCharge={Number(outlet!.service_charge ?? 0)}
       initialOrders={(orders ?? []) as OrderRow[]}
       initialItems={(items ?? []) as OrderItemRow[]}
       tables={(tables ?? []) as Table[]}

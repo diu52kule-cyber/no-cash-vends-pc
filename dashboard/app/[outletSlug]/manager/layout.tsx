@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation';
 import { supabaseServer } from '@/lib/supabase-server';
 import { Sidebar } from '@/components/Sidebar';
+import { canAccess, roleHome, type Role } from '@/lib/access';
 import type { Outlet, Staff } from '@/lib/types';
 
 export default async function ManagerLayout({
@@ -17,7 +18,7 @@ export default async function ManagerLayout({
 
   const { data: staff } = await supa.from('staff')
     .select('*').eq('auth_user_id', user.id).eq('outlet_id', (outlet as Outlet).id).maybeSingle();
-  if (!staff) {
+  if (!staff || !(staff as Staff).active) {
     return (
       <div className="login-bg">
         <div className="login-card">
@@ -28,6 +29,10 @@ export default async function ManagerLayout({
       </div>
     );
   }
+
+  // role gate — send anyone without manager access to their own home
+  const role = (staff as Staff).role as Role;
+  if (!canAccess(role, 'manager')) redirect(`/${outletSlug}/${roleHome(role)}`);
 
   return (
     <div className="shell">

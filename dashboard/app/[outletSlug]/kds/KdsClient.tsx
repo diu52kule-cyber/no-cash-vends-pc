@@ -1,40 +1,65 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-browser';
-import type { Outlet, Table, OrderRow, OrderItemRow, Customer } from '@/lib/types';
+import type { Outlet, Table, OrderRow, OrderItemRow, Customer, MenuCategory, MenuItem } from '@/lib/types';
+
+type Station = 'all' | 'kitchen' | 'bar';
 
 type View = 'order' | 'table';
-type Col = 'pending' | 'preparing' | 'delivered';
+type Status = OrderItemRow['status'];
+type Col = 'pending' | 'preparing' | 'ready';
 
 const COLS: { key: Col; label: string; dir: 'asc' | 'desc' }[] = [
   { key: 'pending', label: 'Pending', dir: 'asc' },       // oldest waiting first
   { key: 'preparing', label: 'Preparing', dir: 'asc' },   // oldest cooking first
-  { key: 'delivered', label: 'Prepared', dir: 'desc' },   // newest ready first (serve cue)
+  { key: 'ready', label: 'Ready', dir: 'desc' },          // newest ready first (serve cue)
 ];
 
 // time an item entered its current section (falls back to order time)
 const enteredAt = (i: OrderItemRow) => +new Date(i.status_changed_at ?? i.created_at);
-const NEXT: Record<Col, Col> = { pending: 'preparing', preparing: 'delivered', delivered: 'delivered' };
-const PREV: Record<Col, Col> = { pending: 'pending', preparing: 'pending', delivered: 'preparing' };
+// advancing 'ready' marks it 'served', which removes it from the KDS board
+const NEXT: Record<Col, Status> = { pending: 'preparing', preparing: 'ready', ready: 'served' };
+const PREV: Record<Col, Status> = { pending: 'pending', preparing: 'pending', ready: 'preparing' };
 
 export function KdsClient({
-  outlet, initialOrders, initialItems, tables, customers,
+  outlet, initialOrders, initialItems, tables, customers, categories, menuItems,
 }: {
   outlet: Outlet;
   initialOrders: OrderRow[];
   initialItems: OrderItemRow[];
   tables: Table[];
   customers: Customer[];
+  categories: MenuCategory[];
+  menuItems: Pick<MenuItem, 'id' | 'category_id'>[];
 }) {
   const [orders, setOrders] = useState<OrderRow[]>(initialOrders);
   const [items, setItems] = useState<OrderItemRow[]>(initialItems);
   const [view, setView] = useState<View>('order');
+  const [station, setStation] = useState<Station>('all');
+  const [flashes, setFlashes] = useState<{ id: string; name: string; qty: number; col: Col; station: 'kitchen' | 'bar' }[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const flashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   useEffect(() => {
-    try { setView((localStorage.getItem('kds:view') as View) || 'order'); } catch {}
+    try {
+      setView((localStorage.getItem('kds:view') as View) || 'order');
+      setStation((localStorage.getItem('kds:station') as Station) || 'all');
+    } catch {}
   }, []);
+
+  // menu_item_id → station (via its category); default kitchen
+  const itemStation = useMemo(() => {
+    const catStation = new Map(categories.map(c => [c.id, c.station ?? 'kitchen']));
+    const m = new Map<string, 'kitchen' | 'bar'>();
+    menuItems.forEach(mi => m.set(mi.id, (mi.category_id ? catStation.get(mi.category_id) : 'kitchen') ?? 'kitchen'));
+    return m;
+  }, [categories, menuItems]);
+  const stationOf = useCallback(
+    (i: OrderItemRow): 'kitchen' | 'bar' => itemStation.get(i.menu_item_id ?? '') ?? 'kitchen',
+    [itemStation],
+  );
+  const hasBar = useMemo(() => categories.some(c => c.station === 'bar'), [categories]);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 20000);
     return () => clearInterval(t);
@@ -46,8 +71,13 @@ export function KdsClient({
 
   const liveItems = useMemo(() => {
     const open = new Set(orders.filter(o => o.status === 'open').map(o => o.id));
-    return items.filter(i => open.has(i.order_id) && i.status !== 'cancelled');
-  }, [items, orders]);
+    // KDS shows only items still in the pipeline; served/cancelled leave the board.
+    // Station filter routes drinks (bar) vs food (kitchen).
+    return items.filter(i =>
+      open.has(i.order_id) &&
+      (i.status === 'pending' || i.status === 'preparing' || i.status === 'ready') &&
+      (station === 'all' || stationOf(i) === station));
+  }, [items, orders, station, stationOf]);
 
   const tickets = useMemo(() => {
     const build = (status: Col, dir: 'asc' | 'desc') => {
@@ -80,14 +110,14 @@ export function KdsClient({
     return {
       pending: build('pending', 'asc'),
       preparing: build('preparing', 'asc'),
-      delivered: build('delivered', 'desc'),
+      ready: build('ready', 'desc'),
     };
   }, [liveItems, view, orderMap, tableMap, custMap]);
 
   const counts = {
     pending: liveItems.filter(i => i.status === 'pending').length,
     preparing: liveItems.filter(i => i.status === 'preparing').length,
-    delivered: liveItems.filter(i => i.status === 'delivered').length,
+    ready: liveItems.filter(i => i.status === 'ready').length,
   };
 
   // ── data refresh + realtime ──────────────────────────────────────
@@ -124,8 +154,13 @@ export function KdsClient({
           if (p.eventType === 'INSERT') {
             setItems(a => a.some(i => i.id === n.id) ? a : [...a, n]);
             try { audioRef.current?.play().catch(() => {}); } catch {}
-          } else if (p.eventType === 'UPDATE') setItems(a => a.map(i => i.id === n.id ? n : i));
-          else if (p.eventType === 'DELETE') setItems(a => a.filter(i => i.id !== o.id));
+          } else if (p.eventType === 'UPDATE') {
+            setItems(a => a.map(i => i.id === n.id ? n : i));
+            // item voided while on the board → brief "Cancelled" flash before it leaves
+            if (n.status === 'cancelled' && (o.status === 'pending' || o.status === 'preparing' || o.status === 'ready')) {
+              addFlash(n, o.status as Col);
+            }
+          } else if (p.eventType === 'DELETE') setItems(a => a.filter(i => i.id !== o.id));
         })
         .subscribe((s) => { connected = s === 'SUBSCRIBED'; if (s === 'SUBSCRIBED') refetch(); });
     })();
@@ -137,7 +172,7 @@ export function KdsClient({
   }, [outlet.id, refetch]);
 
   // ── status actions ───────────────────────────────────────────────
-  async function setStatus(ids: string[], status: Col) {
+  async function setStatus(ids: string[], status: Status) {
     if (!ids.length) return;
     const at = new Date().toISOString();
     setItems(a => a.map(i => ids.includes(i.id) ? { ...i, status, status_changed_at: at } : i)); // optimistic
@@ -148,6 +183,15 @@ export function KdsClient({
   const bump = (its: OrderItemRow[], col: Col) => setStatus(its.map(i => i.id), NEXT[col]);
 
   function changeView(v: View) { setView(v); try { localStorage.setItem('kds:view', v); } catch {} }
+  function changeStation(s: Station) { setStation(s); try { localStorage.setItem('kds:station', s); } catch {} }
+
+  function addFlash(item: OrderItemRow, col: Col) {
+    const st = stationOf(item);
+    setFlashes(f => f.some(x => x.id === item.id) ? f : [...f, { id: item.id, name: item.name_snapshot, qty: item.qty, col, station: st }]);
+    clearTimeout(flashTimers.current[item.id]);
+    flashTimers.current[item.id] = setTimeout(() => setFlashes(f => f.filter(x => x.id !== item.id)), 6000);
+  }
+  useEffect(() => () => { Object.values(flashTimers.current).forEach(clearTimeout); }, []);
 
   return (
     <div className="kx-shell">
@@ -167,6 +211,14 @@ export function KdsClient({
           <button role="tab" aria-selected={view === 'table'} data-on={view === 'table'} onClick={() => changeView('table')}>Table-wise</button>
         </div>
 
+        {hasBar && (
+          <div className="kx-toggle" role="tablist" aria-label="Station">
+            <button data-on={station === 'all'} onClick={() => changeStation('all')}>All</button>
+            <button data-on={station === 'kitchen'} onClick={() => changeStation('kitchen')}>🍳 Kitchen</button>
+            <button data-on={station === 'bar'} onClick={() => changeStation('bar')}>🍸 Bar</button>
+          </div>
+        )}
+
         <div className="kx-stats">
           <div className="kx-pill kx-pill-pending">{counts.pending} pending</div>
           <div className="kx-pill kx-pill-prep">{counts.preparing} preparing</div>
@@ -183,6 +235,9 @@ export function KdsClient({
               <span className="kx-count">{counts[key]}</span>
             </header>
             <div className="kx-tickets">
+              {flashes.filter(f => f.col === key && (station === 'all' || f.station === station)).map(f => (
+                <div key={f.id} className="kx-flash">✕ Cancelled — {f.qty}× {f.name}</div>
+              ))}
               {tickets[key].length === 0 && <div className="kx-empty">Nothing here</div>}
               {tickets[key].map(t => {
                 const age = Math.max(0, Math.round((now - t.stamp) / 60000));
@@ -206,21 +261,19 @@ export function KdsClient({
                           {i.remark && <div className="kx-note">🗒 {i.remark}</div>}
                           <div className="kx-acts">
                             {key !== 'pending' && (
-                              <button className="kx-back" onClick={() => back(i)}>‹ {key === 'delivered' ? 'Recall' : 'Back'}</button>
+                              <button className="kx-back" onClick={() => back(i)}>‹ Back</button>
                             )}
-                            {key !== 'delivered' && (
-                              <button className="kx-adv" onClick={() => advance(i)}>
-                                {key === 'pending' ? 'Start' : 'Ready'} ›
-                              </button>
-                            )}
+                            <button className={`kx-adv ${key === 'ready' ? 'kx-serve' : ''}`} onClick={() => advance(i)}>
+                              {key === 'pending' ? 'Start' : key === 'preparing' ? 'Ready' : 'Served ✓'} {key === 'ready' ? '' : '›'}
+                            </button>
                           </div>
                         </div>
                       ))}
                     </div>
 
-                    {key !== 'delivered' && t.items.length > 1 && (
+                    {t.items.length > 1 && (
                       <button className="kx-bump" onClick={() => bump(t.items, key)}>
-                        {key === 'pending' ? 'Start all' : 'All ready'} ⤼
+                        {key === 'pending' ? 'Start all' : key === 'preparing' ? 'All ready' : 'All served'} ⤼
                       </button>
                     )}
                   </div>
@@ -268,6 +321,12 @@ const kdsCss = `
 
 .kx-tickets { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
 .kx-empty { color: var(--text4); font-size: 13px; text-align: center; padding: 26px 10px; }
+.kx-flash {
+  padding: 12px 14px; border-radius: 12px; font-size: 14px; font-weight: 700;
+  color: white; background: var(--red); border: 1px solid var(--red);
+  text-decoration: line-through; animation: kxflash 1s ease-in-out infinite;
+}
+@keyframes kxflash { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
 
 /* ticket */
 .kx-ticket { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
@@ -298,6 +357,7 @@ const kdsCss = `
 .kx-adv:active, .kx-back:active { transform: scale(0.96); }
 .kx-adv { background: var(--brand); color: var(--bg1); }
 .kx-adv:hover { filter: brightness(1.08); }
+.kx-adv.kx-serve { background: var(--green); color: #06210f; }
 .kx-back { flex: 0 0 auto; min-width: 84px; background: var(--bg4); color: var(--text2); }
 .kx-back:hover { color: var(--text1); }
 

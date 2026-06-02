@@ -67,11 +67,10 @@ export function CartSheet({ lines, currency, remarksEnabled, onClose, onInc, onD
         ))}
 
         <div className="totals">
-          <div className="row"><span>Subtotal</span><span>{currency}{total.toFixed(0)}</span></div>
-          <div className="row" style={{ color: 'var(--text-dim)', fontSize: 11 }}>
-            <span>Taxes &amp; charges</span><span>Shown on final bill</span>
+          <div className="row grand"><span>Subtotal</span><span>{currency}{total.toFixed(0)}</span></div>
+          <div style={{ fontSize: 9.5, color: 'var(--text-dim)', opacity: 0.75, marginTop: 4, textAlign: 'right' }}>
+            Taxes not included yet — added on your final bill.
           </div>
-          <div className="row grand"><span>Total</span><span>{currency}{total.toFixed(0)}</span></div>
         </div>
 
         <button className="btn-primary" disabled={busy || lines.length === 0} onClick={submit}>

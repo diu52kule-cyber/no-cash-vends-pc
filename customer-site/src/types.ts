@@ -45,7 +45,7 @@ export type OrderItem = {
   name_snapshot: string;
   price_at_order: number;
   qty: number;
-  status: 'pending' | 'preparing' | 'delivered' | 'cancelled';
+  status: 'pending' | 'preparing' | 'ready' | 'served' | 'cancelled';
   remark: string | null;
   added_by: 'customer' | 'waiter';
   created_at: string;

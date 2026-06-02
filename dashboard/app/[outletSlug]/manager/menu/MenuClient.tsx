@@ -74,6 +74,12 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
     if (error) alert(error.message);
   }
 
+  async function setCategoryStation(id: string, station: 'kitchen' | 'bar') {
+    setCats(arr => arr.map(c => c.id === id ? { ...c, station } : c));
+    const { error } = await supabaseBrowser().from('menu_categories').update({ station }).eq('id', id);
+    if (error) alert(error.message);
+  }
+
   async function moveCategory(id: string, dir: -1 | 1) {
     const ordered = sortedCats;
     const idx = ordered.findIndex(c => c.id === id);
@@ -281,6 +287,7 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
           onRename={renameCategory}
           onDelete={deleteCategory}
           onMove={moveCategory}
+          onStation={setCategoryStation}
           onClose={() => setManagingCats(false)}
         />
       )}
@@ -289,7 +296,7 @@ export function MenuClient({ outletId, currency, initialCategories, initialItems
 }
 
 function CategoryManager({
-  cats, counts, onAdd, onRename, onDelete, onMove, onClose,
+  cats, counts, onAdd, onRename, onDelete, onMove, onStation, onClose,
 }: {
   cats: MenuCategory[];
   counts: Record<string, number>;
@@ -297,6 +304,7 @@ function CategoryManager({
   onRename: (id: string, name: string) => void | Promise<void>;
   onDelete: (id: string) => void | Promise<void>;
   onMove: (id: string, dir: -1 | 1) => void | Promise<void>;
+  onStation: (id: string, station: 'kitchen' | 'bar') => void | Promise<void>;
   onClose: () => void;
 }) {
   const [newName, setNewName] = useState('');
@@ -321,6 +329,15 @@ function CategoryManager({
                 onBlur={e => { const v = e.target.value.trim(); if (v && v !== c.name) onRename(c.id, v); }}
                 style={{ flex: 1 }}
               />
+              <select
+                value={c.station ?? 'kitchen'}
+                onChange={e => onStation(c.id, e.target.value as 'kitchen' | 'bar')}
+                title="Which KDS station this category prints to"
+                style={{ width: 104 }}
+              >
+                <option value="kitchen">🍳 Kitchen</option>
+                <option value="bar">🍸 Bar</option>
+              </select>
               <span style={{ fontSize: 11, color: 'var(--text3)', minWidth: 54, textAlign: 'right' }}>
                 {counts[c.id] ?? 0} item{(counts[c.id] ?? 0) === 1 ? '' : 's'}
               </span>

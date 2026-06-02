@@ -66,6 +66,7 @@ create table if not exists tables (
 create table if not exists menu_categories (
   id uuid primary key default gen_random_uuid(),
   outlet_id uuid not null references outlets(id) on delete cascade,
+  station text not null default 'kitchen' check (station in ('kitchen','bar')),
   name text not null,
   sort int default 0
 );
@@ -128,7 +129,7 @@ create table if not exists order_items (
   name_snapshot text not null,
   price_at_order numeric(10,2) not null,
   qty int not null check (qty > 0),
-  status text not null default 'pending' check (status in ('pending','preparing','delivered','cancelled')),
+  status text not null default 'pending' check (status in ('pending','preparing','ready','served','cancelled')),
   remark text,
   added_by text not null default 'customer' check (added_by in ('customer','waiter')),
   created_at timestamptz default now(),

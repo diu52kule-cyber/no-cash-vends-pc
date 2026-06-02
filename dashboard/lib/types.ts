@@ -20,7 +20,7 @@ export type Table = {
   capacity: number; zone: string; qr_uid: string;
 };
 
-export type MenuCategory = { id: string; outlet_id: string; name: string; sort: number };
+export type MenuCategory = { id: string; outlet_id: string; name: string; sort: number; station?: 'kitchen' | 'bar' };
 
 export type MenuItem = {
   id: string; outlet_id: string; category_id: string | null;
@@ -40,7 +40,7 @@ export type OrderRow = {
 export type OrderItemRow = {
   id: string; order_id: string; menu_item_id: string | null;
   name_snapshot: string; price_at_order: number; qty: number;
-  status: 'pending' | 'preparing' | 'delivered' | 'cancelled';
+  status: 'pending' | 'preparing' | 'ready' | 'served' | 'cancelled';
   remark: string | null; added_by: 'customer' | 'waiter'; created_at: string;
   status_changed_at?: string;
 };

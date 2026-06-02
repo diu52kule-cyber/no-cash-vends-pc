@@ -26,7 +26,7 @@ export const api = {
   submitOrder: (payload: {
     outletSlug: string; tableId: string; customerId: string | null;
     items: { menuItemId: string; qty: number; remark?: string }[];
-  }) => req<{ orderId: string; billNo: string | null }>(`/api/c/orders`, {
+  }) => req<{ orderId: string | null; billNo: string | null; skipped?: string[] }>(`/api/c/orders`, {
     method: 'POST', body: JSON.stringify(payload),
   }),
   callWaiter: (outletSlug: string, tableId: string, reason?: string) =>

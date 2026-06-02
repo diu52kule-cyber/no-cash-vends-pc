@@ -107,6 +107,37 @@ r.post('/orders', ah(async (req, res) => {
   const body = orderSchema.parse(req.body);
   const outlet = await getOutletBySlug(body.outletSlug);
 
+  // fetch menu items first so we can drop anything unavailable BEFORE touching an order
+  const ids = body.items.map(i => i.menuItemId);
+  const { data: menu, error: mErr } = await supa.from('menu_items')
+    .select('id, name, price, available')
+    .eq('outlet_id', outlet.id).in('id', ids);
+  if (mErr) throw mErr;
+  const byId = new Map(menu!.map(m => [m.id, m]));
+
+  // Skip (don't reject) items that are unavailable or no longer on the menu.
+  const skipped: string[] = [];
+  const rows = body.items.flatMap(i => {
+    const m = byId.get(i.menuItemId);
+    if (!m || !m.available) {
+      if (m) skipped.push(m.name);
+      return [];
+    }
+    return [{
+      menu_item_id: m.id,
+      name_snapshot: m.name,
+      price_at_order: m.price,
+      qty: i.qty,
+      remark: i.remark ?? null,
+      added_by: 'customer' as const,
+    }];
+  });
+
+  // Nothing orderable — don't open/append an order; tell the client what was dropped.
+  if (rows.length === 0) {
+    return res.json({ orderId: null, billNo: null, addedItems: [], skipped });
+  }
+
   // find or create open order for this table
   let { data: order, error: oErr } = await supa.from('orders')
     .select('*').eq('table_id', body.tableId).eq('status', 'open').maybeSingle();
@@ -123,34 +154,11 @@ r.post('/orders', ah(async (req, res) => {
     await supa.from('orders').update({ customer_id: body.customerId }).eq('id', order.id);
   }
 
-  // fetch menu items for price+name snapshots
-  const ids = body.items.map(i => i.menuItemId);
-  const { data: menu, error: mErr } = await supa.from('menu_items')
-    .select('id, name, price, available')
-    .eq('outlet_id', outlet.id).in('id', ids);
-  if (mErr) throw mErr;
-  const byId = new Map(menu!.map(m => [m.id, m]));
-
-  const rows = body.items.map(i => {
-    const m = byId.get(i.menuItemId);
-    if (!m) throw httpErr(400, `Menu item ${i.menuItemId} not found`);
-    if (!m.available) throw httpErr(400, `${m.name} is unavailable`);
-    return {
-      order_id: order!.id,
-      menu_item_id: m.id,
-      name_snapshot: m.name,
-      price_at_order: m.price,
-      qty: i.qty,
-      remark: i.remark ?? null,
-      added_by: 'customer' as const,
-    };
-  });
-
   const { data: inserted, error: iErr } = await supa.from('order_items')
-    .insert(rows).select('*');
+    .insert(rows.map(row => ({ ...row, order_id: order!.id }))).select('*');
   if (iErr) throw iErr;
 
-  res.json({ orderId: order.id, billNo: order.bill_no, addedItems: inserted });
+  res.json({ orderId: order.id, billNo: order.bill_no, addedItems: inserted, skipped });
 }));
 
 // ── POST /api/c/waiter-calls ───────────────────────────────────────

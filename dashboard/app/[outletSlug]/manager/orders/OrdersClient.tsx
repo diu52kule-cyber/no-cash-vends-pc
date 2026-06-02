@@ -1,29 +1,48 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-browser';
-import { PaymentModal, type PaymentMethod } from './PaymentModal';
+import { PaymentModal, type PaymentMethod, type Payment } from './PaymentModal';
+
+const PM_LABELS: Record<string, string> = { cash: 'Cash 💵', upi: 'UPI 📱', card: 'Card 💳' };
+function encodePayments(ps: Payment[]) { return ps.map(p => `${p.method}:${Math.round(p.amount)}`).join(','); }
+function parsePayments(s: string | null): Payment[] {
+  if (!s) return [];
+  return s.split(',').map(seg => {
+    const [m, a] = seg.split(':');
+    return { method: m as PaymentMethod, amount: a !== undefined ? Number(a) : 0 };
+  }).filter(p => p.method);
+}
 import type { OrderRow, OrderItemRow, Table, Customer } from '@/lib/types';
 
 const STATUS_CYCLE: Record<OrderItemRow['status'], OrderItemRow['status']> = {
-  pending: 'preparing', preparing: 'delivered', delivered: 'pending', cancelled: 'pending',
+  pending: 'preparing', preparing: 'ready', ready: 'served', served: 'pending', cancelled: 'pending',
 };
 const STATUS_LABEL: Record<OrderItemRow['status'], string> = {
-  pending: '● Pending', preparing: '◑ Preparing', delivered: '✓ Delivered', cancelled: '✗ Cancelled',
+  pending: '● Pending', preparing: '◑ Preparing', ready: '◕ Ready', served: '✓ Served', cancelled: '✗ Cancelled',
 };
 const STATUS_CLASS: Record<OrderItemRow['status'], string> = {
-  pending: 's-pending', preparing: 's-preparing', delivered: 's-delivered', cancelled: 's-cancelled',
+  pending: 's-pending', preparing: 's-preparing', ready: 's-ready', served: 's-served', cancelled: 's-cancelled',
 };
 
 type Props = {
   outletId: string;
+  outletName: string;
+  outletTagline: string;
+  gstin: string;
   currency: string;
+  cgst: number;
+  sgst: number;
+  serviceCharge: number;
   initialOrders: OrderRow[];
   initialItems: OrderItemRow[];
   tables: Table[];
   customers: Customer[];
 };
 
-export function OrdersClient({ outletId, currency, initialOrders, initialItems, tables, customers }: Props) {
+export function OrdersClient({
+  outletId, outletName, outletTagline, gstin, currency, cgst, sgst, serviceCharge,
+  initialOrders, initialItems, tables, customers,
+}: Props) {
   const [orders, setOrders] = useState<OrderRow[]>(initialOrders);
   const [items, setItems] = useState<OrderItemRow[]>(initialItems);
   const [freshOrderIds, setFreshOrderIds] = useState<Set<string>>(new Set());
@@ -37,6 +56,18 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
     items.forEach(i => { const arr = m.get(i.order_id) ?? []; arr.push(i); m.set(i.order_id, arr); });
     return m;
   }, [items]);
+
+  // Bill maths — GST/service computed at the end (not baked into item prices).
+  function billTotals(orderId: string) {
+    const its = (itemsByOrder.get(orderId) ?? []).filter(i => i.status !== 'cancelled');
+    const subtotal = its.reduce((s, i) => s + i.price_at_order * i.qty, 0);
+    const service = serviceCharge > 0 ? subtotal * serviceCharge / 100 : 0;
+    const taxable = subtotal + service;
+    const cgstAmt = taxable * cgst / 100;
+    const sgstAmt = taxable * sgst / 100;
+    const grand = Math.round(taxable + cgstAmt + sgstAmt);
+    return { subtotal, service, cgstAmt, sgstAmt, grand };
+  }
 
   // Hard refetch — used by polling fallback + focus + when subscribe drops
   const refetch = useCallback(async () => {
@@ -148,31 +179,36 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
     if (error) { alert(error.message); refetch(); }
   }
 
-  async function closeOrder(orderId: string) {
-    if (!confirm('Mark this order as closed?')) return;
+  // Only allowed when there's nothing to pay (empty/voided bill).
+  async function closeEmpty(orderId: string) {
+    if (!confirm('Close this bill? It has no payable items.')) return;
     const supa = supabaseBrowser();
     setOrders(o => o.filter(r => r.id !== orderId));
     await supa.from('orders').update({ status: 'closed', closed_at: new Date().toISOString() }).eq('id', orderId);
   }
 
-  async function confirmPaymentAndPrint(orderId: string, methods: PaymentMethod[]) {
+  // Record payment → print → close. Payment is required to close a bill with a balance.
+  async function settleAndClose(orderId: string, payments: Payment[]) {
     const supa = supabaseBrowser();
-    const csv = methods.join(',');
-    setOrders(o => o.map(r => r.id === orderId ? { ...r, payment_methods: csv } : r));
-    await supa.from('orders').update({ payment_methods: csv }).eq('id', orderId);
+    const csv = encodePayments(payments);
     setPayingOrderId(null);
-    setTimeout(() => printBill(orderId, methods), 100);
+    setTimeout(() => printBill(orderId, payments), 100);
+    setOrders(o => o.filter(r => r.id !== orderId)); // optimistic remove
+    await supa.from('orders').update({
+      payment_methods: csv, status: 'closed', closed_at: new Date().toISOString(),
+    }).eq('id', orderId);
   }
 
-  function printBill(orderId: string, methods?: PaymentMethod[]) {
+  function printBill(orderId: string, payments?: Payment[]) {
     const o = orders.find(x => x.id === orderId)!;
     const its = (itemsByOrder.get(orderId) ?? []).filter(i => i.status !== 'cancelled');
     const cancelledItems = (itemsByOrder.get(orderId) ?? []).filter(i => i.status === 'cancelled');
     const table = tableMap.get(o.table_id);
     const cust = o.customer_id ? custMap.get(o.customer_id) : null;
-    const subtotal = its.reduce((s, i) => s + i.price_at_order * i.qty, 0);
-    const pm = methods ?? (o.payment_methods ? o.payment_methods.split(',') as PaymentMethod[] : []);
-    const pmLabels: Record<string, string> = { cash: 'Cash 💵', upi: 'UPI 📱', card: 'Card 💳' };
+    const t = billTotals(orderId);
+    const fmt = (n: number) => `${currency}${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+    const esc = (s: string) => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!));
+    const pays = payments ?? parsePayments(o.payment_methods);
     const w = window.open('', '_blank', 'width=420,height=720');
     if (!w) return;
     w.document.write(`<!doctype html><html><head><title>Bill ${o.bill_no}</title><style>
@@ -184,16 +220,19 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
       .grand{font-size:15px;font-weight:bold;border-top:2px solid #000;padding-top:6px;margin-top:6px}
       .pay{margin-top:10px;padding:8px 0;border-top:1px dashed #ccc;border-bottom:1px dashed #ccc;font-weight:bold;text-align:center;font-size:13px}
     </style></head><body>
-      <h2>Raasta Nagpur</h2><p class="c m" style="font-size:11px">Caribbean Rooftop Lounge · Dharampeth</p><hr>
+      <h2>${esc(outletName)}</h2>${outletTagline ? `<p class="c m" style="font-size:11px">${esc(outletTagline)}</p>` : ''}${gstin ? `<p class="c m" style="font-size:10px">GSTIN: ${esc(gstin)}</p>` : ''}<hr>
       <div class="row"><span>Bill:</span><b>${o.bill_no ?? ''}</b></div>
       <div class="row"><span>Table:</span><span>${table?.number ?? ''}</span></div>
       ${cust ? `<div class="row"><span>Guest:</span><span>${cust.name}</span></div>` : ''}
       <div class="row"><span>Date:</span><span>${new Date().toLocaleString('en-IN')}</span></div><hr>
       ${its.map(i => `<div class="row"><span>${i.name_snapshot} ×${i.qty}</span><span>${currency}${(i.price_at_order * i.qty).toFixed(0)}</span></div>${i.remark ? `<div class="m" style="font-size:11px;padding-left:6px">↳ ${i.remark}</div>` : ''}`).join('')}
       ${cancelledItems.length ? `<div class="m" style="font-size:10px;padding-top:4px">Cancelled:</div>${cancelledItems.map(i => `<div class="row strike"><span>${i.name_snapshot} ×${i.qty}</span><span>${currency}${(i.price_at_order * i.qty).toFixed(0)}</span></div>`).join('')}` : ''}
-      <hr><div class="row"><span>Subtotal</span><span>${currency}${subtotal.toFixed(0)}</span></div>
-      <div class="row grand"><span>TOTAL</span><span>${currency}${subtotal.toFixed(0)}</span></div>
-      ${pm.length ? `<div class="pay">Paid via: ${pm.map(m => pmLabels[m] ?? m).join(' + ')}</div>` : ''}
+      <hr><div class="row"><span>Subtotal</span><span>${fmt(t.subtotal)}</span></div>
+      ${t.service ? `<div class="row"><span>Service charge</span><span>${fmt(t.service)}</span></div>` : ''}
+      ${cgst ? `<div class="row"><span>CGST ${cgst}%</span><span>${fmt(t.cgstAmt)}</span></div>` : ''}
+      ${sgst ? `<div class="row"><span>SGST ${sgst}%</span><span>${fmt(t.sgstAmt)}</span></div>` : ''}
+      <div class="row grand"><span>TOTAL</span><span>${fmt(t.grand)}</span></div>
+      ${pays.length ? `<div class="pay">Paid via: ${pays.map(p => `${PM_LABELS[p.method] ?? p.method}${p.amount ? ` ${fmt(p.amount)}` : ''}`).join(' + ')}</div>` : ''}
       <p class="c" style="margin-top:14px">Thank you 🙏</p>
     </body></html>`);
     w.document.close();
@@ -230,8 +269,8 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
       <div className="bills">
         {orders.map(o => {
           const its = itemsByOrder.get(o.id) ?? [];
-          const total = its.reduce((s, i) => s + i.price_at_order * i.qty, 0);
-          const pendingN = its.filter(i => i.status !== 'delivered' && i.status !== 'cancelled').length;
+          const t = billTotals(o.id);
+          const pendingN = its.filter(i => i.status !== 'served' && i.status !== 'cancelled').length;
           const fresh = freshOrderIds.has(o.id);
           const cust = o.customer_id ? custMap.get(o.customer_id) : null;
           const table = tableMap.get(o.table_id);
@@ -242,7 +281,7 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
                   <div className="id">{o.bill_no ?? '—'}</div>
                   <div className="tag">Table {table?.number ?? '?'}{cust ? ` · ${cust.name}` : ''}</div>
                 </div>
-                <div className="total">{currency}{total.toLocaleString('en-IN')}</div>
+                <div className="total" title="incl. taxes">{currency}{t.grand.toLocaleString('en-IN')}</div>
               </div>
               <div className="items">
                 {its.map(i => (
@@ -267,10 +306,12 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
                 ))}
               </div>
               <div className="f">
-                <div className="meta">{its.length} items · {pendingN} pending{o.payment_methods ? ` · paid: ${o.payment_methods}` : ''}</div>
+                <div className="meta">{its.filter(i => i.status !== 'cancelled').length} items · {pendingN} pending</div>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setPayingOrderId(o.id)}>Print + Pay</button>
-                  <button className="btn btn-danger btn-sm" onClick={() => closeOrder(o.id)}>Close</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => printBill(o.id)}>Print</button>
+                  {t.grand > 0
+                    ? <button className="btn btn-primary btn-sm" onClick={() => setPayingOrderId(o.id)}>Settle &amp; close</button>
+                    : <button className="btn btn-danger btn-sm" onClick={() => closeEmpty(o.id)}>Close</button>}
                 </div>
               </div>
             </div>
@@ -281,12 +322,11 @@ export function OrdersClient({ outletId, currency, initialOrders, initialItems, 
       {payingOrderId && (() => {
         const o = orders.find(x => x.id === payingOrderId);
         if (!o) return null;
-        const total = (itemsByOrder.get(o.id) ?? []).filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.price_at_order * i.qty, 0);
         return (
           <PaymentModal
-            total={total} currency={currency}
+            total={billTotals(o.id).grand} currency={currency}
             onCancel={() => setPayingOrderId(null)}
-            onConfirm={(methods) => confirmPaymentAndPrint(o.id, methods)}
+            onConfirm={(payments) => settleAndClose(o.id, payments)}
           />
         );
       })()}

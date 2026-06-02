@@ -30,6 +30,7 @@ export default function App() {
   const [active, setActive] = useState<ActiveOrder>(null);
   const [toast, setToast] = useState<string>('');
   const [showCoach, setShowCoach] = useState(false);
+  const [removed, setRemoved] = useState<string[] | null>(null);
 
   // ── Sync the background gradient phase so every device shows the same frame ──
   useEffect(() => {
@@ -141,7 +142,8 @@ export default function App() {
       });
       setCart([]); setCartOpen(false);
       await refreshActive(table.id);
-      flash(res.billNo ? `Order placed · ${res.billNo}` : 'Order placed');
+      if (res.orderId) flash(res.billNo ? `Order placed · ${res.billNo}` : 'Order placed');
+      if (res.skipped && res.skipped.length) setRemoved(res.skipped);
     } catch (e: any) {
       flash(e.message || 'Could not place order');
     }
@@ -253,6 +255,18 @@ export default function App() {
           )}
 
           {toast && <div className="toast">{toast}</div>}
+
+          {removed && (
+            <div className="sheet-bg" onClick={(e) => { if (e.target === e.currentTarget) setRemoved(null); }}>
+              <div className="notice">
+                <div className="notice-ic">🙏</div>
+                <h3>A couple of items just ran out</h3>
+                <p>These weren’t added to your order — sorry about that:</p>
+                <ul>{removed.map((n, i) => <li key={i}>{n}</li>)}</ul>
+                <button className="btn-primary" onClick={() => setRemoved(null)}>Got it</button>
+              </div>
+            </div>
+          )}
 
           {showCoach && (
             <Coachmark

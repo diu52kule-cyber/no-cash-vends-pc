@@ -583,8 +583,30 @@ body::after {
 }
 .st-pending { background: rgba(232,160,48,0.18); color: #e8a030; }
 .st-preparing { background: rgba(80,144,216,0.18); color: #5090d8; }
-.st-delivered { background: rgba(76,175,125,0.18); color: #4caf7d; }
+.st-ready { background: rgba(91,141,239,0.20); color: #8ab0ff; }
+.st-served { background: rgba(76,175,125,0.18); color: #4caf7d; }
 .st-cancelled { background: rgba(255,255,255,0.04); color: var(--text-dim); text-decoration: line-through; }
+
+/* ─── GENTLE NOTICE (e.g. items ran out) ─── */
+.sheet-bg .notice {
+  margin: auto; width: calc(100% - 48px); max-width: 360px;
+  background: linear-gradient(180deg, #1c1612 0%, #14100d 100%);
+  border: 1px solid rgba(255,255,255,0.08); border-radius: 22px;
+  padding: 26px 22px 22px; text-align: center;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.6);
+  animation: noticeIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes noticeIn { from { opacity: 0; transform: translateY(14px) scale(0.96); } to { opacity: 1; transform: none; } }
+.notice .notice-ic { font-size: 34px; margin-bottom: 8px; }
+.notice h3 { font-family: var(--font-display); font-size: 19px; font-weight: 600; margin-bottom: 6px; }
+.notice p { color: var(--text-dim); font-size: 13px; line-height: 1.5; margin-bottom: 12px; }
+.notice ul {
+  list-style: none; text-align: left; display: flex; flex-direction: column; gap: 6px;
+  margin: 0 0 18px; padding: 12px 14px; border-radius: 14px;
+  background: rgba(244,196,48,0.06); border: 1px solid rgba(244,196,48,0.18);
+}
+.notice ul li { font-size: 13.5px; color: var(--text); }
+.notice ul li::before { content: '• '; color: var(--secondary); }
 
 /* ─── CALL-WAITER COACHMARK ─── */
 .coach {

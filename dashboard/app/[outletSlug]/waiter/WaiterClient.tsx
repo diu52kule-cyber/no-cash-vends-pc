@@ -7,10 +7,10 @@ import type { Outlet, Staff, Table, OrderRow, OrderItemRow, MenuItem, MenuCatego
 type WaiterCall = { id: string; outlet_id: string; table_id: string; status: 'open' | 'answered'; reason: string | null; created_at: string };
 
 const STATUS_CYCLE: Record<OrderItemRow['status'], OrderItemRow['status']> = {
-  pending: 'preparing', preparing: 'delivered', delivered: 'pending', cancelled: 'pending',
+  pending: 'preparing', preparing: 'ready', ready: 'served', served: 'pending', cancelled: 'pending',
 };
 const STATUS_LABEL: Record<OrderItemRow['status'], string> = {
-  pending: 'Pending', preparing: 'Preparing', delivered: 'Delivered', cancelled: 'Cancelled',
+  pending: 'Pending', preparing: 'Preparing', ready: 'Ready', served: 'Served', cancelled: 'Cancelled',
 };
 
 type Filter = 'all' | 'occupied' | 'called' | 'free';
@@ -160,13 +160,13 @@ export function WaiterClient({
     setItems(arr => arr.map(i => i.id === itemId ? { ...i, status: next } : i));
     await supabaseBrowser().from('order_items').update({ status: next }).eq('id', itemId);
   }
-  async function markAllDelivered() {
+  async function markAllServed() {
     if (!selectedOrder) return;
     const supa = supabaseBrowser();
-    const ids = selectedItems.filter(i => i.status !== 'delivered' && i.status !== 'cancelled').map(i => i.id);
+    const ids = selectedItems.filter(i => i.status !== 'served' && i.status !== 'cancelled').map(i => i.id);
     if (!ids.length) return;
-    setItems(arr => arr.map(i => ids.includes(i.id) ? { ...i, status: 'delivered' as const } : i));
-    await supa.from('order_items').update({ status: 'delivered' }).in('id', ids);
+    setItems(arr => arr.map(i => ids.includes(i.id) ? { ...i, status: 'served' as const } : i));
+    await supa.from('order_items').update({ status: 'served' }).in('id', ids);
   }
   async function ackCall() {
     if (!selectedCall) return;
@@ -323,7 +323,7 @@ export function WaiterClient({
                     </div>
                     <div className="w-actions">
                       <button className="w-btn w-btn-primary" onClick={() => setShowAdd(true)}>+ Add items</button>
-                      <button className="w-btn w-btn-ghost" onClick={markAllDelivered}>All delivered</button>
+                      <button className="w-btn w-btn-ghost" onClick={markAllServed}>All served</button>
                       <button className="w-btn w-btn-danger" onClick={closeOrder}>Close bill</button>
                     </div>
                   </footer>
@@ -427,7 +427,8 @@ const waiterCss = `
   align-items: center;
 }
 .w-item-cancelled { opacity: 0.5; text-decoration: line-through; }
-.w-item-delivered { background: rgba(76,175,125,0.05); border-color: rgba(76,175,125,0.18); }
+.w-item-ready { background: rgba(91,141,239,0.06); border-color: rgba(91,141,239,0.22); }
+.w-item-served { background: rgba(76,175,125,0.05); border-color: rgba(76,175,125,0.18); }
 .w-item-main { min-width: 0; }
 .w-item-name { font-size: 15px; font-weight: 500; }
 .w-item-qty { color: var(--text3); font-weight: 400; margin-left: 4px; }
@@ -439,10 +440,11 @@ const waiterCss = `
   transition: all 0.15s; border: 1.5px solid;
 }
 .w-status:active { transform: scale(0.95); }
-.w-status-pending   { background: var(--red-dim);   color: var(--red);   border-color: rgba(232,90,90,0.3); }
-.w-status-preparing { background: var(--amber-dim); color: var(--amber); border-color: rgba(232,160,48,0.3); }
-.w-status-delivered { background: var(--green-dim); color: var(--green); border-color: rgba(76,175,125,0.3); }
-.w-status-cancelled { background: var(--bg3);       color: var(--text4); border-color: var(--border); }
+.w-status-pending   { background: var(--red-dim);    color: var(--red);    border-color: rgba(232,90,90,0.3); }
+.w-status-preparing { background: var(--amber-dim);  color: var(--amber);  border-color: rgba(232,160,48,0.3); }
+.w-status-ready     { background: var(--accent-dim); color: var(--accent); border-color: rgba(91,141,239,0.3); }
+.w-status-served    { background: var(--green-dim);  color: var(--green);  border-color: rgba(76,175,125,0.3); }
+.w-status-cancelled { background: var(--bg3);        color: var(--text4);  border-color: var(--border); }
 
 .w-empty-items { color: var(--text3); padding: 40px; text-align: center; font-size: 14px; }
 

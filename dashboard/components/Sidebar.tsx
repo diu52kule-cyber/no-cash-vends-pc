@@ -18,9 +18,17 @@ const NAV = [
   ]},
 ];
 
+// admin-only items appended to the Setup group
+const ADMIN_ITEMS = [
+  { key: 'staff', label: 'Team & logins', href: 'staff', icon: '👥' },
+];
+
 export function Sidebar({ outlet, staff }: { outlet: Outlet; staff: Staff }) {
   const path = usePathname();
   const base = `/${outlet.slug}/manager`;
+  const nav = staff.role === 'admin'
+    ? NAV.map(g => g.section === 'Setup' ? { ...g, items: [...g.items, ...ADMIN_ITEMS] } : g)
+    : NAV;
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -31,7 +39,7 @@ export function Sidebar({ outlet, staff }: { outlet: Outlet; staff: Staff }) {
         </div>
       </div>
 
-      {NAV.map(group => (
+      {nav.map(group => (
         <div key={group.section}>
           <div className="nav-head">{group.section}</div>
           {group.items.map(it => {
@@ -46,15 +54,6 @@ export function Sidebar({ outlet, staff }: { outlet: Outlet; staff: Staff }) {
           })}
         </div>
       ))}
-
-      <div>
-        <div className="nav-head">Kitchen</div>
-        <a href={`/${outlet.slug}/kds`} target="_blank" rel="noopener" className="nav-item">
-          <span className="icon">👨‍🍳</span>
-          <span>Kitchen Display</span>
-          <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text4)' }}>↗</span>
-        </a>
-      </div>
 
       <div className="me">
         <div className="av">{staff.name.split(' ').map(p => p[0]).slice(0, 2).join('')}</div>
